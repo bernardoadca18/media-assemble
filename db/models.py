@@ -34,6 +34,19 @@ class VideoIdeia(Base):
     data_criacao: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class RoteiroDB(Base):
+    """Persistência de roteiros gerados na Fase 2."""
+    __tablename__ = "roteiros"
+    __table_args__ = {"schema": "dados"}
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    nicho: Mapped[str] = mapped_column(String, nullable=False)
+    titulo_sugerido: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    criado_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ExecucaoPipeline(Base):
     """Rastreabilidade de cada execução completa do pipeline (Fase 6)."""
     __tablename__ = "execucoes_pipeline"
@@ -82,6 +95,57 @@ async def buscar_titulos_recentes_db(nicho: str, limite: int = 30) -> list[str]:
         )
         resultado = await session.execute(stmt)
         return [row[0] for row in resultado.all()]
+
+
+async def salvar_roteiro(roteiro) -> str:
+    """
+    Persiste um `Roteiro` (pipeline.schemas.Roteiro) gerado na Fase 2.
+    Retorna o video_id do roteiro salvo.
+    """
+    import json
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        # Verificar se já existe roteiro com este video_id
+        stmt = select(RoteiroDB).where(RoteiroDB.video_id == roteiro.metadata.video_id)
+        resultado = await session.execute(stmt)
+        existente = resultado.scalar_one_or_none()
+
+        if existente:
+            # Atualizar existente
+            existente.payload_json = roteiro.model_dump_json()
+            existente.titulo_sugerido = roteiro.metadata.titulo_sugerido
+            existente.nicho = roteiro.metadata.nicho
+        else:
+            # Criar novo
+            registro = RoteiroDB(
+                video_id=roteiro.metadata.video_id,
+                nicho=roteiro.metadata.nicho,
+                titulo_sugerido=roteiro.metadata.titulo_sugerido,
+                payload_json=roteiro.model_dump_json(),
+            )
+            session.add(registro)
+
+        await session.commit()
+        return roteiro.metadata.video_id
+
+
+async def buscar_roteiro(video_id: str):
+    """Recupera um roteiro salvo pelo video_id. Retorna o objeto Roteiro ou None."""
+    import json
+    from pipeline.schemas import Roteiro
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(RoteiroDB).where(RoteiroDB.video_id == video_id)
+        resultado = await session.execute(stmt)
+        registro = resultado.scalar_one_or_none()
+
+        if not registro:
+            return None
+
+        dados = json.loads(registro.payload_json)
+        return Roteiro.model_validate(dados)
 
 
 async def salvar_execucao(roteiro: dict, caminho_final: str) -> None:

@@ -5,8 +5,19 @@
 /.pnp
 .pnp.js
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
 # testing
 /coverage
+.pytest_cache/
 
 # next.js
 /.next/
@@ -34,3 +45,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# data directories (generated files)
+data/audio_temp/
+data/output_final/
+data/voz_referencia/
+
+# IDE
+.vscode/
+.idea/

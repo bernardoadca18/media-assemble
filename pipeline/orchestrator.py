@@ -2,10 +2,10 @@
 Orquestrador principal do pipeline.
 
 Este módulo é o "maestro" — substitui o fluxo visual do n8n por um pipeline
-Python explícito, com cada etapa isolada em services/. Nesta versão inicial
-(base para a Fase 1), apenas a etapa de Tendências + Ideação está ativa; as
-demais etapas são chamadas como stubs a serem implementados nas fases
-seguintes (ver RELATORIO_FASES_DESENVOLVIMENTO.md).
+Python explícito, com cada etapa isolada em services/.
+- Fase 1 (Tendências + Ideação): implementada
+- Fase 2 (Roteirização): implementada
+- Fases 3-5: stubs a serem implementados (ver RELATORIO_FASES_DESENVOLVIMENTO.md)
 """
 import asyncio
 import logging
@@ -13,7 +13,8 @@ import logging
 from services.trends.scraper import coletar_tendencias
 from services.trends.normalizer import normalizar_tendencias
 from services.ideation.agent import gerar_ideias
-from db.models import salvar_ideias
+from services.scripting.writer_agent import gerar_roteiro
+from db.models import salvar_ideias, salvar_roteiro
 
 logger = logging.getLogger("orchestrator")
 
@@ -33,24 +34,50 @@ async def rodar_etapa_ideacao(nicho: str) -> list:
     return ideias
 
 
+async def rodar_etapa_roteirizacao(ideia, nicho: str = "cultura_pop"):
+    """
+    Escopo da Fase 2: dado uma Ideia, gerar e persistir um Roteiro completo.
+    Retorna o roteiro validado e salvo no banco.
+    """
+    roteiro = await gerar_roteiro(ideia=ideia, nicho=nicho)
+    video_id = await salvar_roteiro(roteiro)
+
+    logger.info(
+        "roteirizacao.concluida",
+        extra={
+            "video_id": video_id,
+            "total_cenas": len(roteiro.cenas),
+            "duracao": roteiro.metadata.duracao_estimada_segundos,
+        }
+    )
+    return roteiro
+
+
 async def rodar_pipeline_completo(nicho: str):
     """
-    Pipeline ponta-a-ponta. A partir da Fase 2 em diante, este método passa
-    a encadear roteirização -> áudio -> assets -> render. Por enquanto,
-    delega apenas à etapa de ideação (Fase 1).
+    Pipeline ponta-a-ponta.
+    - Fase 1: coleta tendências -> gera 5 ideias
+    - Fase 2: seleciona 1 ideia -> gera roteiro completo
+    - Fases 3-5: stubs (não implementados nesta fase)
     """
+    # Fase 1: Ideação
     ideias = await rodar_etapa_ideacao(nicho)
 
-    # TODO (Fase 2): escolher 1 ideia e chamar services.scripting.writer_agent
+    if not ideias:
+        logger.warning("pipeline.sem_ideias", extra={"nicho": nicho})
+        return None
+
+    # Fase 2: Roteirização (usar a primeira ideia)
+    ideia_escolhida = ideias[0]
+    logger.info(
+        "pipeline.ideia_selecionada",
+        extra={"topico": ideia_escolhida.topico, "titulo": ideia_escolhida.titulo_sugerido}
+    )
+
+    roteiro = await rodar_etapa_roteirizacao(ideia=ideia_escolhida, nicho=nicho)
+
     # TODO (Fase 3): gerar áudio via services.audio.pipeline_audio
     # TODO (Fase 4): resolver assets via services.visual.asset_resolver
     # TODO (Fase 5): renderizar via services.render.remotion_bridge
 
-    return ideias
-
-
-if __name__ == "__main__":
-    from pipeline.config import settings
-
-    for nicho in settings.nichos_lista:
-        asyncio.run(rodar_pipeline_completo(nicho))
+    return roteiro
