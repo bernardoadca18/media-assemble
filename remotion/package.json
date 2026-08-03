@@ -1,0 +1,15 @@
+{
+  "name": "faceless-pipeline-remotion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Camada de renderização de vídeo (Fase 5) — inicializar com `npx create-video@latest` ou instalar dependências do Remotion manualmente aqui.",
+  "scripts": {
+    "start": "remotion studio src/index.ts",
+    "render": "remotion render VideoPrincipal out/video.mp4"
+  },
+  "dependencies": {
+    "remotion": "^4.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}
