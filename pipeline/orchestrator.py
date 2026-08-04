@@ -58,7 +58,8 @@ async def rodar_pipeline_completo(nicho: str):
     Pipeline ponta-a-ponta.
     - Fase 1: coleta tendências -> gera 5 ideias
     - Fase 2: seleciona 1 ideia -> gera roteiro completo
-    - Fases 3-5: stubs (não implementados nesta fase)
+    - Fase 3: gera áudio para cada cena -> valida via Whisper -> concatena
+    - Fases 4-5: stubs (não implementados nesta fase)
     """
     # Fase 1: Ideação
     ideias = await rodar_etapa_ideacao(nicho)
@@ -76,7 +77,25 @@ async def rodar_pipeline_completo(nicho: str):
 
     roteiro = await rodar_etapa_roteirizacao(ideia=ideia_escolhida, nicho=nicho)
 
-    # TODO (Fase 3): gerar áudio via services.audio.pipeline_audio
+    # Fase 3: Geração de áudio
+    from services.audio.pipeline_audio import gerar_audio_do_roteiro
+    roteiro = await gerar_audio_do_roteiro(roteiro)
+
+    # Persiste novamente o roteiro agora com os campos de áudio preenchidos
+    # (audio_path/palavras_transcritas por cena, audio_final_path no
+    # metadata) — sem isso, todo o trabalho de TTS/validação feito acima
+    # ficaria apenas em memória e se perderia caso o processo seja
+    # interrompido antes da Fase 5.
+    await salvar_roteiro(roteiro)
+
+    logger.info(
+        "pipeline.audio_concluido",
+        extra={
+            "video_id": roteiro.metadata.video_id,
+            "audio_final": roteiro.metadata.audio_final_path,
+        }
+    )
+
     # TODO (Fase 4): resolver assets via services.visual.asset_resolver
     # TODO (Fase 5): renderizar via services.render.remotion_bridge
 

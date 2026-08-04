@@ -1,8 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-/.pnp
+# dependencies (Node.js - funciona em qualquer profundidade)
+node_modules/
+.pnp
 .pnp.js
 
 # Python
@@ -16,35 +16,11 @@ venv/
 ENV/
 
 # testing
-/coverage
 .pytest_cache/
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # local env files
 .env*.local
 .env
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
 
 # data directories (generated files)
 data/audio_temp/
@@ -54,3 +30,7 @@ data/voz_referencia/
 # IDE
 .vscode/
 .idea/
+repomix*
+
+# OS
+.DS_Store

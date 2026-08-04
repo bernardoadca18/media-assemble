@@ -1,3 +1,4 @@
+
 # Relatório de Planejamento — Fases de Desenvolvimento
 ## Sistema Autônomo de Vídeos Faceless (100% Python)
 

@@ -89,4 +89,11 @@ async def gerar_ideias(nicho: str, tendencias: list[str]):
         logger.error("gerar_ideias.parse_falhou", extra={"erro": str(e), "resposta": resposta_bruta})
         raise
 
+    # O LLM não gera o campo `nicho` (não faz parte do prompt de saída);
+    # atribuímos programaticamente aqui para que a persistência e as
+    # consultas de histórico por nicho funcionem corretamente quando mais
+    # de um nicho estiver ativo (ver NICHOS_ATIVOS no .env).
+    for ideia in resposta.ideias:
+        ideia.nicho = nicho
+
     return resposta.ideias

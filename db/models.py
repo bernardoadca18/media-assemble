@@ -77,6 +77,7 @@ async def salvar_ideias(ideias: list) -> None:
                 topico=ideia.topico,
                 titulo_sugerido=ideia.titulo_sugerido,
                 descricao_breve=ideia.descricao_breve,
+                nicho=ideia.nicho or "cultura_pop",
             )
             session.add(registro)
         await session.commit()

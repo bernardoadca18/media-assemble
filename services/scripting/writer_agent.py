@@ -212,7 +212,7 @@ async def _tentar_gerar_roteiro(
     Tenta gerar e validar um roteiro.
     Levanta exceção se esgotar tentativas.
     """
-    resposta_bruta = await complete_cloud(prompt)
+    resposta_bruta = await complete_cloud(prompt, model=settings.cloud_model_roteiro)
     texto_limpo = _limpar_resposta_json(resposta_bruta)
 
     try:
@@ -239,6 +239,15 @@ async def _tentar_gerar_roteiro(
             extra={"tentativa": tentativa, "erros": erros_negocio}
         )
         raise ValueError("Regras de negócio violadas:\n" + "\n".join(erros_negocio))
+
+    # A duração declarada pelo LLM em metadata é apenas uma estimativa
+    # informada por ele mesmo — pode divergir da soma real das cenas.
+    # Recalculamos aqui para que o valor usado pelas Fases 3 e 5 (áudio e
+    # render, que dependem dessa duração para sincronização) seja sempre
+    # exato, e não uma aproximação do modelo.
+    roteiro.metadata.duracao_estimada_segundos = sum(
+        cena.duracao_estimada_segundos for cena in roteiro.cenas
+    )
 
     logger.info(
         "gerar_roteiro.sucesso",

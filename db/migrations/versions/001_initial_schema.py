@@ -44,31 +44,33 @@ def upgrade() -> None:
     )
 
     # Tabela execucoes_pipeline (nova, para rastreabilidade do pipeline Python)
+    # Colunas alinhadas com db/models.py::ExecucaoPipeline — usada de fato
+    # a partir da Fase 6 (Orquestração End-to-End).
     op.create_table(
         'execucoes_pipeline',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column('video_id', sa.String(), nullable=False),
         sa.Column('nicho', sa.String(), nullable=False),
-        sa.Column('status', sa.String(), nullable=False),
-        sa.Column('inicio_em', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('fim_em', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('erro', sa.Text(), nullable=True),
-        sa.Column('roteiro_json', sa.JSON(), nullable=True),
+        sa.Column('etapa_atual', sa.String(), nullable=False, server_default='ideacao'),
+        sa.Column('sucesso', sa.Boolean(), nullable=True),
         sa.Column('caminho_video_final', sa.String(), nullable=True),
+        sa.Column('wer_medio', sa.Float(), nullable=True),
+        sa.Column('criado_em', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id'),
         schema='dados'
     )
 
-    # Índice para consultas por nicho e status
+    # Índice para consultas por nicho e vídeo
     op.create_index(
-        'ix_execucoes_pipeline_nicho_status',
+        'ix_execucoes_pipeline_nicho_video',
         'execucoes_pipeline',
-        ['nicho', 'status'],
+        ['nicho', 'video_id'],
         schema='dados'
     )
 
 
 def downgrade() -> None:
-    op.drop_index('ix_execucoes_pipeline_nicho_status', table_name='execucoes_pipeline', schema='dados')
+    op.drop_index('ix_execucoes_pipeline_nicho_video', table_name='execucoes_pipeline', schema='dados')
     op.drop_table('execucoes_pipeline', schema='dados')
 
     op.drop_index('ix_videos_ideias_nicho_data', table_name='videos_ideias', schema='dados')

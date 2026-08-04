@@ -18,6 +18,10 @@ class Ideia(BaseModel):
     topico: str
     titulo_sugerido: str
     descricao_breve: str
+    # Preenchido programaticamente por services/ideation/agent.py após a
+    # resposta do LLM (o LLM não precisa e não deve gerar este campo) —
+    # mantido opcional aqui para não quebrar a validação da resposta bruta.
+    nicho: str | None = None
 
 
 class RespostaIdeacao(BaseModel):
