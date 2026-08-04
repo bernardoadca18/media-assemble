@@ -100,6 +100,9 @@ class MetadataRoteiro(BaseModel):
     audio_final_path: str | None = None
     palavras_transcritas: list[Palavra] | None = None
 
+    # Preenchido automaticamente pela Fase 5
+    video_final_path: str | None = None
+
 
 class Roteiro(BaseModel):
     metadata: MetadataRoteiro

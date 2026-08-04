@@ -1,0 +1,67 @@
+# Relatório de Auditoria — Fase 4 (Assets Visuais)
+
+**Fonte analisada:** `repomix-output.xml` fornecido (estado atual do repositório, após a implementação da Fase 4 via `PROMPT_OPENCLAUDE_FASE4.md`)
+
+## Veredito geral
+
+As 4 correções da auditoria da Fase 3 (arquivo por tentativa no TTS, duração real no cálculo de timestamps, import consolidado do F5-TTS, persistência pós-áudio) foram **todas aplicadas corretamente**.
+
+A Fase 4 em si está muito bem implementada: indexação do banco local por tags com normalização robusta (acentos, espaços, hífens, caracteres especiais), match exato e parcial, fallback via Pexels com tratamento de erro cuidadoso (HTTP, conexão, resposta inesperada), cache de download por hash de conteúdo, e a política de "nunca deixar cena sem asset silenciosamente" foi respeitada — cenas sem asset são marcadas com `revisao_manual_necessaria = True` e o pipeline segue adiante. `yt-dlp` foi corretamente deixado de fora, documentado como último recurso não implementado. 19 testes novos cobrindo normalização de tag, indexação, match exato/parcial, fallback mockado e o fluxo completo do roteiro.
+
+Encontrei **1 regressão real** (a mais importante), e apliquei **2 melhorias** dentro do que já estava previsto no prompt. Nenhuma quebra os testes existentes.
+
+---
+
+## 1. Regressão — `README.md` desapareceu do repositório
+
+**Onde:** raiz do repositório
+
+Comparando com a auditoria da Fase 3 (onde o `README.md` estava presente e correto), ele simplesmente não existe mais neste repomix — junto com `RELATORIO_FASES_DESENVOLVIMENTO.md` e `guia-pipeline-faceless-python.md`. Não há explicação no código para isso; não foi um pedido de nenhum prompt anterior. Isso é uma regressão de documentação, não um bug funcional — o pipeline roda igual sem o README — mas é um problema real de continuidade: é o primeiro arquivo que qualquer pessoa (ou você mesmo, daqui a duas semanas) abre para entender o projeto, e cada prompt até aqui pediu explicitamente para mantê-lo atualizado a cada fase.
+
+**Correção aplicada:** recriei o `README.md` do zero, refletindo o estado real do projeto (Fases 1-4 concluídas), incluindo a convenção de tags do banco local de assets (que ainda não estava documentada em lugar nenhum) e a variável `PEXELS_API_KEY`. Os dois documentos de planejamento (`RELATORIO_FASES_DESENVOLVIMENTO.md` e o guia de arquitetura) eu não recriei — são documentos de referência que entreguei fora do repositório originalmente; fica a seu critério se quer tê-los versionados junto ao código ou não. Vale só confirmar com o agente **por que** eles somem entre sessões, para não virar um padrão.
+
+## 2. Melhoria — variedade de assets no banco local
+
+**Onde:** `services/visual/asset_resolver.py::_buscar_no_banco_local`
+
+Quando uma tag tinha múltiplos arquivos (ex: `doctor_doom/` com 5 imagens diferentes), a implementação sempre retornava `arquivos[0]` — ou seja, o mesmo arquivo, sempre, para qualquer vídeo que referenciasse aquela tag. Isso vai direto contra a diretriz de evitar padrão repetitivo/robótico já estabelecida no guia de arquitetura original (seção 4) — o objetivo de ter múltiplos arquivos por tag é justamente dar variedade.
+
+**Correção aplicada:** troquei para `random.choice(arquivos)` nos dois pontos de match (exato e parcial). Confirmei que nenhum teste dependia do arquivo específico retornado (os testes checam `is not None`, a origem, ou que a tag aparece no path — nunca um arquivo exato) — a mudança não quebra nada.
+
+## 3. Documentação interna desatualizada
+
+**Onde:** `pipeline/orchestrator.py` (docstring do módulo e da função `rodar_pipeline_completo`)
+
+Ainda diziam "Fases 3-5: stubs a serem implementados", embora as Fases 3 e 4 já estivessem implementadas e conectadas no mesmo arquivo — um contrassenso que confunde quem abre o arquivo para entender o estado do pipeline.
+
+**Correção aplicada:** atualizei ambos os comentários para refletir a realidade (Fases 1-4 implementadas, Fase 5 pendente).
+
+---
+
+## Arquivos entregues (versão completa, já corrigida)
+
+| Arquivo entregue | Substitui em / cria em |
+|---|---|
+| `README.md` | `/README.md` (recriado) |
+| `pipeline_orchestrator.py` | `pipeline/orchestrator.py` |
+| `services_visual_asset_resolver.py` | `services/visual/asset_resolver.py` |
+
+Todos os `.py` validados com `python3 -m py_compile`. A mudança de
+`arquivos[0]` para `random.choice(arquivos)` foi conferida linha a linha
+contra os 19 testes de `test_asset_resolver.py` — nenhum assert depende do
+arquivo específico escolhido dentro de uma tag. Não tive acesso à rede
+nesta sessão para instalar dependências e rodar `pytest` de fato — como
+nas auditorias anteriores, recomendo rodar `pytest -v` após aplicar para
+confirmar em ambiente real.
+
+## Itens observados, não corrigidos (fora de escopo desta auditoria)
+
+- `fallback_scraper.py` baixa o asset do Pexels a cada chamada, mesmo que
+  a mesma query já tenha sido buscada antes (o cache por hash evita
+  duplicar o *arquivo salvo*, mas não evita a *chamada de rede* repetida
+  para a mesma query). Não é um bug, é uma otimização possível para a
+  Fase 7 (redução de custo/latência), não relevante ainda no volume atual.
+- Vale confirmar com o agente, na próxima sessão, se ele sabe explicar o
+  desaparecimento do `README.md` e dos documentos de planejamento — pode
+  ser só um `.gitignore` mal aplicado localmente no ambiente dele (não no
+  repositório) ou uma limpeza manual acidental.

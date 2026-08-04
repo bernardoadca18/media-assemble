@@ -12,6 +12,7 @@ Convenção do banco local:
 - Match é parcial: "Doctor Doom comic art" casa com `doctor_doom`
 """
 import logging
+import random
 import re
 import unicodedata
 from pathlib import Path
@@ -167,7 +168,12 @@ def _buscar_no_banco_local(keywords: list[str]) -> AssetResolvido | None:
         if kw in indice:
             arquivos = indice[kw]
             if arquivos:
-                return AssetResolvido(path=arquivos[0], origem="banco_local")
+                # Escolhe aleatoriamente entre os arquivos da tag — evita
+                # que o mesmo asset único seja reutilizado em todo vídeo
+                # que referencie essa tag, o que deixaria os vídeos
+                # visualmente repetitivos (ver seção 4 do guia de
+                # arquitetura sobre evitar padrão robótico/repetitivo).
+                return AssetResolvido(path=random.choice(arquivos), origem="banco_local")
 
     # Tenta match parcial (keyword contida na tag ou tag contida na keyword)
     for kw in keywords_normalizadas:
@@ -175,7 +181,7 @@ def _buscar_no_banco_local(keywords: list[str]) -> AssetResolvido | None:
             # Keyword contém a tag (ex: "doctor_doom_art" contém "doctor_doom")
             if kw in tag or tag in kw:
                 if arquivos:
-                    return AssetResolvido(path=arquivos[0], origem="banco_local")
+                    return AssetResolvido(path=random.choice(arquivos), origem="banco_local")
 
     return None
 

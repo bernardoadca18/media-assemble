@@ -8,8 +8,11 @@
     "render": "remotion render VideoPrincipal out/video.mp4"
   },
   "dependencies": {
-    "remotion": "^4.0.0",
     "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.506"
   }
 }

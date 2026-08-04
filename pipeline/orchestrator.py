@@ -5,7 +5,9 @@ Este módulo é o "maestro" — substitui o fluxo visual do n8n por um pipeline
 Python explícito, com cada etapa isolada em services/.
 - Fase 1 (Tendências + Ideação): implementada
 - Fase 2 (Roteirização): implementada
-- Fases 3-5: stubs a serem implementados (ver RELATORIO_FASES_DESENVOLVIMENTO.md)
+- Fase 3 (Áudio): implementada
+- Fase 4 (Assets Visuais): implementada
+- Fase 5 (Renderização/Remotion): stub a ser implementado
 """
 import asyncio
 import logging
@@ -59,7 +61,8 @@ async def rodar_pipeline_completo(nicho: str):
     - Fase 1: coleta tendências -> gera 5 ideias
     - Fase 2: seleciona 1 ideia -> gera roteiro completo
     - Fase 3: gera áudio para cada cena -> valida via Whisper -> concatena
-    - Fases 4-5: stubs (não implementados nesta fase)
+    - Fase 4: resolve assets visuais (banco local + fallback Pexels)
+    - Fase 5: stub (não implementada ainda)
     """
     # Fase 1: Ideação
     ideias = await rodar_etapa_ideacao(nicho)
@@ -112,6 +115,22 @@ async def rodar_pipeline_completo(nicho: str):
         }
     )
 
-    # TODO (Fase 5): renderizar via services.render.remotion_bridge
+    # Fase 5: Renderização via Remotion
+    from services.render.remotion_bridge import renderizar_video
+    video_path = await renderizar_video(roteiro)
+
+    # Atualizar roteiro com caminho do vídeo
+    roteiro.metadata.video_final_path = str(video_path)
+
+    # Persistir roteiro final com caminho do vídeo
+    await salvar_roteiro(roteiro)
+
+    logger.info(
+        "pipeline.renderizacao_concluida",
+        extra={
+            "video_id": roteiro.metadata.video_id,
+            "video_final": roteiro.metadata.video_final_path,
+        }
+    )
 
     return roteiro
