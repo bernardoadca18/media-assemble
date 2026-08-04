@@ -83,8 +83,8 @@ Toda chamada que toca a GPU local (LLM local via LiteLLM, F5-TTS, Faster-Whisper
 |---|---|---|
 | 1 | Tendências + Ideação | Implementado |
 | 2 | Roteirização completa | Implementado |
-| 3 | Áudio (F5-TTS + Whisper + WER) | Stub |
-| 4 | Assets visuais | Stub |
+| 3 | Áudio (F5-TTS + Whisper + WER) | Implementado |
+| 4 | Assets visuais | Implementado |
 | 5 | Renderização (Remotion) | Stub |
 | 6 | Orquestração end-to-end + observabilidade | Não iniciado |
 | 7 | Hardening, multi-nicho, deploy | Não iniciado |
@@ -115,3 +115,60 @@ O schema `Roteiro` em `pipeline/schemas.py` é a fonte da verdade. O agente de r
 - Duração de cena: 3-8 segundos
 - Animações não podem repetir 3x consecutivas
 - Texto destaque em no máximo 1/3 das cenas
+
+## Fase 4: Assets Visuais
+
+A Fase 4 resolve os assets visuais para cada cena do roteiro, seguindo a ordem de prioridade: banco local → fallback externo (Pexels).
+
+### Banco local de assets
+
+O diretório `data/assets_local/` armazena assets organizados por tags. Convenção:
+
+```
+data/assets_local/
+    doctor_doom/
+        img1.jpg
+        img2.png
+    naruto/
+        clip1.mp4
+        hero_poster.jpg
+    marvel_comics/
+        villain_art.webp
+```
+
+- Cada subpasta representa uma **tag**
+- O nome da pasta é a tag (normalizada: minúsculas, sem acentos, underscores)
+- Arquivos dentro da pasta são assets daquela tag
+- Extensões suportadas: `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.mp4`, `.webm`, `.mov`
+- Diretórios iniciados com `_` ou `.` são ignorados (ex: `_fallback_cache/`)
+
+### Match de keywords
+
+Para cada cena, o sistema:
+
+1. Normaliza as keywords de `midia.keywords_busca`
+2. Busca match contra as tags do banco local (match exato ou parcial)
+3. Se encontrar, preenche `asset_resolvido_path` e `asset_origem = "banco_local"`
+
+Exemplo: keyword "Doctor Doom comic art" normaliza para `doctor_doom_comic_art` e casa com a tag `doctor_doom`.
+
+### Fallback via Pexels
+
+Se o banco local não encontrar nada, o sistema busca na API do Pexels usando `midia.fallback_query`. Para ativar:
+
+```bash
+# No .env
+PEXELS_API_KEY=sua_chave_aqui
+```
+
+Os assets baixados são cacheados em `data/assets_local/_fallback_cache/`.
+
+### Cena sem asset
+
+Se nem o banco local nem o fallback encontrarem asset, a cena é marcada com `revisao_manual_necessaria = True`. O pipeline segue sem interromper, mas o problema fica explícito para revisão humana.
+
+### Variáveis de ambiente
+
+| Variável | Obrigatório | Descrição |
+|---|---|---|
+| `PEXELS_API_KEY` | Não | Chave de API do Pexels para fallback de assets |

@@ -96,7 +96,22 @@ async def rodar_pipeline_completo(nicho: str):
         }
     )
 
-    # TODO (Fase 4): resolver assets via services.visual.asset_resolver
+    # Fase 4: Resolução de assets visuais
+    from services.visual.asset_resolver import resolver_assets_do_roteiro
+    roteiro = await resolver_assets_do_roteiro(roteiro)
+
+    # Persiste novamente o roteiro agora com os assets resolvidos
+    await salvar_roteiro(roteiro)
+
+    logger.info(
+        "pipeline.assets_concluido",
+        extra={
+            "video_id": roteiro.metadata.video_id,
+            "cenas_com_asset": sum(1 for c in roteiro.cenas if c.asset_resolvido_path),
+            "cenas_sem_asset": sum(1 for c in roteiro.cenas if not c.asset_resolvido_path),
+        }
+    )
+
     # TODO (Fase 5): renderizar via services.render.remotion_bridge
 
     return roteiro
