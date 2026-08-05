@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from pipeline.config import settings
 from pipeline.schemas import Roteiro
 
 logger = logging.getLogger("remotion_bridge")
@@ -33,7 +34,7 @@ async def renderizar_video(roteiro: Roteiro, output_path: Path | None = None) ->
     """
     # Determinar caminho de saída
     if output_path is None:
-        output_dir = Path("data/output_final")
+        output_dir = settings.data_dir / "output_final"
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{roteiro.metadata.video_id}.mp4"
 
@@ -60,7 +61,7 @@ async def renderizar_video(roteiro: Roteiro, output_path: Path | None = None) ->
 
     try:
         # Construir comando do Remotion CLI
-        remotion_dir = Path("remotion")
+        remotion_dir = settings.remotion_dir
 
         # Comando: npx remotion render VideoPrincipal <output> --props=<roteiro_json>
         comando = [

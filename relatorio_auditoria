@@ -1,67 +1,83 @@
-# Relatório de Auditoria — Fase 4 (Assets Visuais)
+# Relatório de Auditoria — Fase 5 (Renderização via Remotion)
 
-**Fonte analisada:** `repomix-output.xml` fornecido (estado atual do repositório, após a implementação da Fase 4 via `PROMPT_OPENCLAUDE_FASE4.md`)
+**Fonte analisada:** `repomix-output.xml` fornecido (estado atual do repositório, após a implementação da Fase 5)
 
 ## Veredito geral
 
-As 4 correções da auditoria da Fase 3 (arquivo por tentativa no TTS, duração real no cálculo de timestamps, import consolidado do F5-TTS, persistência pós-áudio) foram **todas aplicadas corretamente**.
+Preciso ser direto: **a claim de "pipeline pronto para gerar vídeos de ponta a ponta" quase certamente não se sustenta na prática**, apesar dos 87 testes passando. Encontrei dois bugs que, juntos, significam que um render real via `npx remotion render` provavelmente produziria um vídeo de ~10 segundos, preto ou com a tela de "Carregando...", em vez do vídeo real — e ambos são exatamente do tipo que testes mockados não pegam, porque mockam justamente o ponto onde o problema está (`_executar_comando_remotion`, nunca o Remotion de verdade).
 
-A Fase 4 em si está muito bem implementada: indexação do banco local por tags com normalização robusta (acentos, espaços, hífens, caracteres especiais), match exato e parcial, fallback via Pexels com tratamento de erro cuidadoso (HTTP, conexão, resposta inesperada), cache de download por hash de conteúdo, e a política de "nunca deixar cena sem asset silenciosamente" foi respeitada — cenas sem asset são marcadas com `revisao_manual_necessaria = True` e o pipeline segue adiante. `yt-dlp` foi corretamente deixado de fora, documentado como último recurso não implementado. 19 testes novos cobrindo normalização de tag, indexação, match exato/parcial, fallback mockado e o fluxo completo do roteiro.
-
-Encontrei **1 regressão real** (a mais importante), e apliquei **2 melhorias** dentro do que já estava previsto no prompt. Nenhuma quebra os testes existentes.
+Isso não desmerece o trabalho — a estrutura dos componentes (Ken Burns, legendas, ducking de áudio, bridge Python) está bem pensada e no caminho certo. Mas o critério de aceite mais importante que eu havia marcado explicitamente — "validado manualmente assistindo ao resultado" — não parece ter sido cumprido; se tivesse sido, esses dois problemas teriam aparecido imediatamente ao abrir o vídeo gerado.
 
 ---
 
-## 1. Regressão — `README.md` desapareceu do repositório
+## 1. Bug crítico — descompasso entre o que o Python envia e o que o componente espera receber
 
-**Onde:** raiz do repositório
+**Onde:** `remotion/src/Root.tsx`, `remotion/src/components/VideoComposition.tsx`, `services/render/remotion_bridge.py`
 
-Comparando com a auditoria da Fase 3 (onde o `README.md` estava presente e correto), ele simplesmente não existe mais neste repomix — junto com `RELATORIO_FASES_DESENVOLVIMENTO.md` e `guia-pipeline-faceless-python.md`. Não há explicação no código para isso; não foi um pedido de nenhum prompt anterior. Isso é uma regressão de documentação, não um bug funcional — o pipeline roda igual sem o README — mas é um problema real de continuidade: é o primeiro arquivo que qualquer pessoa (ou você mesmo, daqui a duas semanas) abre para entender o projeto, e cada prompt até aqui pediu explicitamente para mantê-lo atualizado a cada fase.
+O bridge Python (`remotion_bridge.py`) serializa o **roteiro inteiro** (`roteiro.model_dump_json()` — um objeto `{metadata: {...}, cenas: [...]}`) em um arquivo temporário e passa esse arquivo via `--props=<caminho>`. É assim que o Remotion CLI funciona: o conteúdo desse arquivo **vira o objeto de props em si**, entregue diretamente ao componente da composição — não é uma referência a outro arquivo.
 
-**Correção aplicada:** recriei o `README.md` do zero, refletindo o estado real do projeto (Fases 1-4 concluídas), incluindo a convenção de tags do banco local de assets (que ainda não estava documentada em lugar nenhum) e a variável `PEXELS_API_KEY`. Os dois documentos de planejamento (`RELATORIO_FASES_DESENVOLVIMENTO.md` e o guia de arquitetura) eu não recriei — são documentos de referência que entreguei fora do repositório originalmente; fica a seu critério se quer tê-los versionados junto ao código ou não. Vale só confirmar com o agente **por que** eles somem entre sessões, para não virar um padrão.
+Só que `VideoComposition.tsx` estava implementado esperando receber `{ roteiroPath: string }` — ou seja, esperava um *caminho de arquivo* como prop, e tentava ler esse caminho do disco via `fs.readFileSync` dentro de um `useEffect` (com `delayRender`/`continueRender`, técnica correta para I/O assíncrono no Remotion, mas aplicada ao problema errado).
 
-## 2. Melhoria — variedade de assets no banco local
+Na prática: como o objeto de props real é `{metadata, cenas}` (sem nenhuma chave `roteiroPath`), a prop `roteiroPath` chega como `undefined` em todo render real. O `useEffect` cai no `if (!roteiroPath) { continueRender(handle); return; }` — ou seja, o componente nunca carrega o roteiro de verdade, e renderiza para sempre a tela de "Carregando...". Isso não gera erro (por isso passa despercebido) — gera um vídeo tecnicamente "válido", só que vazio.
 
-**Onde:** `services/visual/asset_resolver.py::_buscar_no_banco_local`
+**Correção aplicada:** reescrevi `VideoComposition.tsx` para receber o roteiro **diretamente** como props (`RoteiroData`), removendo por completo a leitura de arquivo/`delayRender` — desnecessários, já que o Remotion já entrega os dados prontos de forma síncrona via `--props`. Ajustei `Root.tsx` para casar o tipo. `remotion_bridge.py` não precisou de mudança nesse ponto específico (ele já estava fazendo a coisa certa — o problema estava inteiramente do lado do componente).
 
-Quando uma tag tinha múltiplos arquivos (ex: `doctor_doom/` com 5 imagens diferentes), a implementação sempre retornava `arquivos[0]` — ou seja, o mesmo arquivo, sempre, para qualquer vídeo que referenciasse aquela tag. Isso vai direto contra a diretriz de evitar padrão repetitivo/robótico já estabelecida no guia de arquitetura original (seção 4) — o objetivo de ter múltiplos arquivos por tag é justamente dar variedade.
+## 2. Bug crítico — duração do vídeo sempre fixa em 30 segundos, independente do roteiro
 
-**Correção aplicada:** troquei para `random.choice(arquivos)` nos dois pontos de match (exato e parcial). Confirmei que nenhum teste dependia do arquivo específico retornado (os testes checam `is not None`, a origem, ou que a tag aparece no path — nunca um arquivo exato) — a mudança não quebra nada.
+**Onde:** `remotion/src/Root.tsx`
 
-## 3. Documentação interna desatualizada
+A `<Composition>` declarava `durationInFrames={900}` (30s a 30fps) como valor **estático**, sem nenhum mecanismo para recalcular isso a partir da duração real do roteiro recebido. Como os roteiros gerados pela Fase 2 têm ~180s por padrão, isso significa que todo render real seria cortado brutalmente aos 30 segundos (ou, em teoria, sobraria tempo morto se o roteiro fosse mais curto que 30s) — o vídeo final nunca bateria com `metadata.duracao_estimada_segundos`, que é justamente um dos critérios de aceite que eu havia marcado explicitamente para esta fase.
 
-**Onde:** `pipeline/orchestrator.py` (docstring do módulo e da função `rodar_pipeline_completo`)
+**Correção aplicada:** adicionei a prop `calculateMetadata` na `<Composition>` (API estável do Remotion v4, compatível com a versão já declarada em `package.json`), que recalcula `durationInFrames` a partir da soma real das durações das cenas recebidas via props — a cada render, com os dados reais, não mais um valor chutado. O `durationInFrames={300}` que ficou no componente agora é usado só como fallback do Remotion Studio antes de props reais existirem (nunca usado em render de fato, que sempre passa por `calculateMetadata`).
 
-Ainda diziam "Fases 3-5: stubs a serem implementados", embora as Fases 3 e 4 já estivessem implementadas e conectadas no mesmo arquivo — um contrassenso que confunde quem abre o arquivo para entender o estado do pipeline.
+> Essas duas correções são interligadas por design: ao corrigir o bug 1 (props chegando prontos, sem leitura assíncrona de arquivo), o `calculateMetadata` do bug 2 passou a poder acessar os dados do roteiro de forma síncrona e confiável — as duas correções se sustentam uma na outra.
 
-**Correção aplicada:** atualizei ambos os comentários para refletir a realidade (Fases 1-4 implementadas, Fase 5 pendente).
+## 3. Bug de robustez — paths relativos ao invés dos já preparados em `settings`
+
+**Onde:** `services/render/remotion_bridge.py`
+
+`pipeline/config.py` já expõe `settings.remotion_dir` e `settings.data_dir` desde a Fase 0 — preparados especificamente para este tipo de uso. O bridge, no entanto, usava `Path("remotion")` e `Path("data/output_final")` diretamente, relativos ao diretório de trabalho do processo no momento da execução. Funciona hoje porque `python main.py` é sempre rodado a partir da raiz do repo — mas quebra silenciosamente (ou pior, silenciosamente escreve no lugar errado) assim que o processo for iniciado de outro jeito, o que é bem provável de acontecer a partir da Fase 6 (systemd, cron, supervisor, etc.).
+
+**Correção aplicada:** troquei para `settings.remotion_dir` e `settings.data_dir`, consistente com o padrão já estabelecido no resto do projeto.
+
+## 4. Bug de UX — legenda piscando/sumindo entre palavras
+
+**Onde:** `remotion/src/components/SubtitlesOverlay.tsx`
+
+A palavra "atual" era encontrada com `currentTime >= p.start && currentTime < p.end` — uma correspondência exata de intervalo. Timestamps do Whisper quase sempre têm uma pequena lacuna entre o fim de uma palavra e o início da próxima (pausa natural da fala). Nesses intervalos, `palavraAtual` ficava `undefined`, e a lógica de janela de contexto (`palavras.indexOf(palavraAtual!)`) resultava em `indexOf(undefined)` → `-1`, esvaziando a lista de palavras visíveis. Na prática, a legenda piscaria/sumiria brevemente entre **cada palavra** do vídeo inteiro — um problema estético sério para um canal cujo objetivo declarado é justamente não parecer robótico.
+
+**Correção aplicada:** troquei para "a última palavra cujo início já passou" (mantém a legenda visível continuamente, segurando a última palavra falada até a próxima começar), em vez de exigir estar dentro do intervalo exato `[start, end)`.
+
+---
+
+## Itens que NÃO corrigi — preciso da confirmação do agente em ambiente real
+
+### 5. Paths locais absolutos passados direto para `<Audio src=...>`, `<Video src=...>`, `<Img src=...>`
+
+**Onde:** `AudioTrack.tsx`, `SceneRenderer.tsx`
+
+`AudioTrack` recebe `metadata.audio_final_path` (um path absoluto do sistema de arquivos, gerado pela Fase 3) e passa direto para `<Audio src={narrationPath} />`. O mesmo vale para `<Video src={cena.asset_resolvido_path} />` e `<Img src={...} />` dentro de `KenBurnsImage`/`SceneRenderer`. O Remotion renderiza via Chromium headless (Puppeteer) — navegadores, por padrão, **não carregam paths arbitrários do sistema de arquivos** por `src=`; o padrão documentado do Remotion para assets locais é usar `staticFile()` (para arquivos dentro de `remotion/public/`) ou, para paths absolutos fora do projeto, prefixar com `file://`.
+
+Como os áudios/imagens desta pipeline são gerados dinamicamente pelo Python fora de `remotion/public/`, isso é um ponto real de risco — mas **não tenho como validar com certeza sem rodar o Remotion de verdade** (não tenho acesso a Node/npm nesta sessão), e o comportamento pode variar por versão. **Não apliquei uma correção aqui para não arriscar te dar uma instrução tecnicamente errada com confiança falsa.**
+
+**O que fazer:** este é o primeiro item da Parte 1 do próximo prompt — teste um render real com um roteiro pequeno e observe se os assets carregam. Se não carregarem (tela preta sem imagem, ou áudio mudo), o caminho mais provável é prefixar os paths absolutos com `file://` antes de passar para `src=`, ou copiar/symlinkar os assets resolvidos para dentro de `remotion/public/` antes do render e usar `staticFile()`. Verifique contra a documentação oficial do Remotion (`https://www.remotion.dev/docs/using-audio` e `/docs/video`) para a versão instalada (`@remotion/cli ^4.0.506`).
+
+### 6. `README.md`: a nota de investigação que deixei ficou sem resposta
+
+O `README.md` restaurado (que eu mesmo escrevi na sessão anterior) tinha uma nota pedindo para investigar por que o arquivo havia sumiu do repositório entre as Fases 3 e 4. Essa nota continua lá, idêntica, sem nenhuma atualização — o resumo da sessão que você recebeu do agente não menciona ter investigado isso. Não é urgente, mas ficou em aberto; pedi para resolver no próximo prompt (investigar via `git log` e substituir a nota pela conclusão real, ou remover se não for mais relevante).
 
 ---
 
 ## Arquivos entregues (versão completa, já corrigida)
 
-| Arquivo entregue | Substitui em / cria em |
+| Arquivo entregue | Substitui em |
 |---|---|
-| `README.md` | `/README.md` (recriado) |
-| `pipeline_orchestrator.py` | `pipeline/orchestrator.py` |
-| `services_visual_asset_resolver.py` | `services/visual/asset_resolver.py` |
+| `services_render_remotion_bridge.py` | `services/render/remotion_bridge.py` |
+| `remotion_src_Root.tsx` | `remotion/src/Root.tsx` |
+| `remotion_src_components_VideoComposition.tsx` | `remotion/src/components/VideoComposition.tsx` |
+| `remotion_src_components_SubtitlesOverlay.tsx` | `remotion/src/components/SubtitlesOverlay.tsx` |
+| `pipeline_orchestrator.py` | `pipeline/orchestrator.py` (só os dois comentários desatualizados — a integração funcional da Fase 5 já estava correta) |
 
-Todos os `.py` validados com `python3 -m py_compile`. A mudança de
-`arquivos[0]` para `random.choice(arquivos)` foi conferida linha a linha
-contra os 19 testes de `test_asset_resolver.py` — nenhum assert depende do
-arquivo específico escolhido dentro de uma tag. Não tive acesso à rede
-nesta sessão para instalar dependências e rodar `pytest` de fato — como
-nas auditorias anteriores, recomendo rodar `pytest -v` após aplicar para
-confirmar em ambiente real.
+Todos os `.py` validados com `python3 -m py_compile`. Os arquivos `.tsx`/`.ts` eu não tenho como compilar/testar nesta sessão (sem Node/npm disponível) — revisei manualmente contra a API documentada do Remotion v4 (`calculateMetadata`, shape de `Composition`/`defaultProps`), com boa confiança de que a estrutura está correta, mas **é essencial rodar `npx remotion render` de verdade e assistir ao resultado antes de considerar a Fase 5 encerrada** — isso vira o primeiro critério de aceite do próximo prompt, não uma sugestão opcional.
 
-## Itens observados, não corrigidos (fora de escopo desta auditoria)
-
-- `fallback_scraper.py` baixa o asset do Pexels a cada chamada, mesmo que
-  a mesma query já tenha sido buscada antes (o cache por hash evita
-  duplicar o *arquivo salvo*, mas não evita a *chamada de rede* repetida
-  para a mesma query). Não é um bug, é uma otimização possível para a
-  Fase 7 (redução de custo/latência), não relevante ainda no volume atual.
-- Vale confirmar com o agente, na próxima sessão, se ele sabe explicar o
-  desaparecimento do `README.md` e dos documentos de planejamento — pode
-  ser só um `.gitignore` mal aplicado localmente no ambiente dele (não no
-  repositório) ou uma limpeza manual acidental.
+Também removi (não incluí nos arquivos entregues, mas sinalizo aqui) um arquivo estranho que apareceu na raiz do repositório: `relatorio_auditoria` — uma cópia literal do meu relatório de auditoria da Fase 4, sem extensão `.md`, aparentemente commitado por engano. Vale apagar.

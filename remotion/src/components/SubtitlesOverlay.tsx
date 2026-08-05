@@ -25,16 +25,30 @@ export const SubtitlesOverlay: React.FC<SubtitlesOverlayProps> = ({
   // Converter frame para segundos
   const currentTime = frame / fps;
 
-  // Encontrar a palavra atual (sendo falada no momento)
-  const palavraAtual = palavras.find(
-    (p) => currentTime >= p.start && currentTime < p.end
-  );
+  // Palavra "atual": a última cujo início já passou. Usar apenas o
+  // intervalo exato [start, end) faz a legenda piscar/sumir em qualquer
+  // pequeno intervalo entre o fim de uma palavra e o início da próxima
+  // (muito comum nos timestamps do Whisper) — aqui a legenda permanece
+  // visível continuamente, segurando a última palavra falada até a
+  // próxima começar.
+  let palavraAtual: Palavra | undefined;
+  for (const p of palavras) {
+    if (p.start <= currentTime) {
+      palavraAtual = p;
+    } else {
+      break;
+    }
+  }
+
+  if (!palavraAtual) {
+    return null;
+  }
 
   // Encontrar palavras recentemente faladas (janela de contexto)
+  const indiceAtual = palavras.indexOf(palavraAtual);
   const palavrasVisiveis = palavras
     .filter((p) => {
       // Mostrar palavra atual e as 3 anteriores
-      const indiceAtual = palavras.indexOf(palavraAtual!);
       const indicePalavra = palavras.indexOf(p);
       return indicePalavra >= indiceAtual - 3 && indicePalavra <= indiceAtual;
     })

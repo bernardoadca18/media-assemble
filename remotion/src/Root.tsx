@@ -58,18 +58,59 @@ export interface Palavra {
   end: number;
 }
 
+const FPS = 30;
+
+// Props default para o preview do Remotion Studio (antes de --props reais
+// serem fornecidos pelo bridge Python). Um roteiro vazio e válido é
+// suficiente para o Studio não quebrar ao listar a composição.
+const roteiroPadrao: RoteiroData = {
+  metadata: {
+    video_id: "preview",
+    nicho: "",
+    titulo_sugerido: "",
+    duracao_estimada_segundos: 10,
+    trilha_fundo: "",
+    volume_trilha_fundo: 0.15,
+    audio_final_path: null,
+    palavras_transcritas: null,
+    video_final_path: null,
+  },
+  cenas: [],
+};
+
+/**
+ * Calcula a duração total do vídeo (em frames) a partir da soma real das
+ * durações das cenas do roteiro recebido via --props.
+ *
+ * IMPORTANTE: sem isso, a Composition usaria sempre o `durationInFrames`
+ * estático declarado abaixo (fallback do Studio), cortando ou esticando
+ * todo vídeo real para essa duração fixa, independentemente da duração
+ * verdadeira do roteiro.
+ */
+function calcularDuracaoTotalFrames(roteiro: RoteiroData): number {
+  const totalFrames = roteiro.cenas.reduce(
+    (acc, cena) => acc + Math.ceil(cena.duracao_estimada_segundos * FPS),
+    0
+  );
+  // Nunca retorna 0 (Remotion exige durationInFrames >= 1)
+  return Math.max(totalFrames, 1);
+}
+
 export const RemotionRoot: React.FC = () => {
   return (
     <>
       <Composition
         id="VideoPrincipal"
         component={VideoComposition}
-        durationInFrames={900} // Será sobrescrito pelos dados reais
-        fps={30}
+        durationInFrames={300} // Fallback para o Studio antes de props reais; sobrescrito por calculateMetadata em render real
+        fps={FPS}
         width={1920}
         height={1080}
-        defaultProps={{
-          roteiroPath: "",
+        defaultProps={roteiroPadrao}
+        calculateMetadata={({ props }) => {
+          return {
+            durationInFrames: calcularDuracaoTotalFrames(props as RoteiroData),
+          };
         }}
       />
     </>

@@ -7,7 +7,7 @@ Python explícito, com cada etapa isolada em services/.
 - Fase 2 (Roteirização): implementada
 - Fase 3 (Áudio): implementada
 - Fase 4 (Assets Visuais): implementada
-- Fase 5 (Renderização/Remotion): stub a ser implementado
+- Fase 5 (Renderização/Remotion): implementada
 """
 import asyncio
 import logging
@@ -62,7 +62,7 @@ async def rodar_pipeline_completo(nicho: str):
     - Fase 2: seleciona 1 ideia -> gera roteiro completo
     - Fase 3: gera áudio para cada cena -> valida via Whisper -> concatena
     - Fase 4: resolve assets visuais (banco local + fallback Pexels)
-    - Fase 5: stub (não implementada ainda)
+    - Fase 5: renderiza o vídeo final via Remotion (subprocess)
     """
     # Fase 1: Ideação
     ideias = await rodar_etapa_ideacao(nicho)
