@@ -3,7 +3,7 @@
  * Aplica ducking automático na trilha durante a narração.
  */
 import React from "react";
-import { Audio, useCurrentFrame, useVideoConfig } from "remotion";
+import { Audio, useCurrentFrame, useVideoConfig, staticFile } from "remotion";
 
 interface AudioTrackProps {
   narrationPath: string | null;
@@ -31,7 +31,7 @@ export const AudioTrack: React.FC<AudioTrackProps> = ({
       {/* Narração principal */}
       {narrationPath && (
         <Audio
-          src={narrationPath}
+          src={staticFile(narrationPath)}
           volume={1}
         />
       )}
@@ -39,7 +39,7 @@ export const AudioTrack: React.FC<AudioTrackProps> = ({
       {/* Trilha de fundo */}
       {backgroundTrackPath && (
         <Audio
-          src={backgroundTrackPath}
+          src={staticFile(backgroundTrackPath)}
           volume={adjustedBackgroundVolume}
           loop
         />

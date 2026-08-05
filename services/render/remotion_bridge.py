@@ -7,6 +7,7 @@ via subprocess para renderizar o vídeo final.
 import asyncio
 import json
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,63 @@ from pipeline.config import settings
 from pipeline.schemas import Roteiro
 
 logger = logging.getLogger("remotion_bridge")
+
+
+def _copiar_assets_para_public(roteiro: Roteiro) -> dict[str, str]:
+    """
+    Copia assets do roteiro para remotion/public/ para uso via staticFile().
+
+    O Remotion só consegue carregar arquivos locais via staticFile() se
+    estiverem em public/. Esta função copia áudio, imagens e vídeos do
+    roteiro para esse diretório e retorna um mapeamento dos paths originais
+    para os nomes dos arquivos em public/.
+
+    Args:
+        roteiro: Roteiro com assets_resolvido_path e audio_final_path
+
+    Returns:
+        Dict mapeando path_original -> nome_arquivo_public
+    """
+    public_dir = settings.remotion_dir / "public"
+    public_dir.mkdir(parents=True, exist_ok=True)
+
+    mapeamento: dict[str, str] = {}
+
+    # Copiar áudio final se existir
+    if roteiro.metadata.audio_final_path:
+        audio_path = Path(roteiro.metadata.audio_final_path)
+        if audio_path.exists():
+            nome_public = f"audio_{roteiro.metadata.video_id}.wav"
+            destino = public_dir / nome_public
+            shutil.copy2(audio_path, destino)
+            mapeamento[str(audio_path)] = nome_public
+            logger.debug(
+                "remotion.asset_copiado",
+                extra={"original": str(audio_path), "public": nome_public}
+            )
+
+    # Copiar assets de cada cena
+    for cena in roteiro.cenas:
+        if cena.asset_resolvido_path:
+            asset_path = Path(cena.asset_resolvido_path)
+            if asset_path.exists():
+                # Usar video_id + cena_id para garantir unicidade
+                ext = asset_path.suffix
+                nome_public = f"asset_{roteiro.metadata.video_id}_cena_{cena.cena_id}{ext}"
+                destino = public_dir / nome_public
+                shutil.copy2(asset_path, destino)
+                mapeamento[str(asset_path)] = nome_public
+                logger.debug(
+                    "remotion.asset_copiado",
+                    extra={"original": str(asset_path), "public": nome_public}
+                )
+
+    logger.info(
+        "remotion.assets_preparados",
+        extra={"video_id": roteiro.metadata.video_id, "total_assets": len(mapeamento)}
+    )
+
+    return mapeamento
 
 
 async def renderizar_video(roteiro: Roteiro, output_path: Path | None = None) -> Path:
@@ -38,9 +96,26 @@ async def renderizar_video(roteiro: Roteiro, output_path: Path | None = None) ->
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{roteiro.metadata.video_id}.mp4"
 
-    # Serializar roteiro para JSON temporário
-    roteiro_json = roteiro.model_dump_json()
-    roteiro_dict = json.loads(roteiro_json)
+    # Copiar assets para remotion/public/ e obter mapeamento
+    mapeamento_assets = _copiar_assets_para_public(roteiro)
+
+    # Criar cópia do roteiro com paths atualizados para staticFile()
+    roteiro_dict = roteiro.model_dump()
+
+    # Atualizar paths no roteiro para usar nomes em public/
+    if roteiro_dict["metadata"]["audio_final_path"]:
+        path_original = roteiro_dict["metadata"]["audio_final_path"]
+        if path_original in mapeamento_assets:
+            roteiro_dict["metadata"]["audio_final_path"] = mapeamento_assets[path_original]
+
+    for cena in roteiro_dict["cenas"]:
+        if cena["asset_resolvido_path"]:
+            path_original = cena["asset_resolvido_path"]
+            if path_original in mapeamento_assets:
+                cena["asset_resolvido_path"] = mapeamento_assets[path_original]
+
+    # Serializar roteiro atualizado para JSON
+    roteiro_json = json.dumps(roteiro_dict)
 
     with tempfile.NamedTemporaryFile(
         mode="w",

@@ -2,7 +2,7 @@
  * Renderiza uma cena individual com imagem/vídeo e overlays.
  */
 import React from "react";
-import { AbsoluteFill, useVideoConfig, Video, Sequence } from "remotion";
+import { AbsoluteFill, useVideoConfig, Video, Sequence, staticFile } from "remotion";
 import { KenBurnsImage } from "./KenBurnsImage";
 import { SubtitlesOverlay } from "./SubtitlesOverlay";
 import { Cena, Palavra } from "../Root";
@@ -33,7 +33,7 @@ export const SceneRenderer: React.FC<SceneRendererProps> = ({
         {/* Asset visual (imagem ou vídeo) */}
         {isVideo ? (
           <Video
-            src={cena.asset_resolvido_path}
+            src={staticFile(cena.asset_resolvido_path)}
             style={{
               width: "100%",
               height: "100%",

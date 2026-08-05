@@ -3,7 +3,7 @@
  * Aplica zoom in/out ou pan lateral suave usando interpolate.
  */
 import React from "react";
-import { interpolate, useCurrentFrame, useVideoConfig, AbsoluteFill, Img, spring } from "remotion";
+import { interpolate, useCurrentFrame, useVideoConfig, AbsoluteFill, Img, spring, staticFile } from "remotion";
 
 type AnimacaoTipo = "ken_burns_zoom_in" | "ken_burns_zoom_out" | "pan_lateral";
 
@@ -53,7 +53,7 @@ export const KenBurnsImage: React.FC<KenBurnsImageProps> = ({
   return (
     <AbsoluteFill style={{ overflow: "hidden" }}>
       <Img
-        src={src}
+        src={staticFile(src)}
         style={{
           width: "100%",
           height: "100%",
