@@ -1,10 +1,11 @@
 # Faceless Pipeline — Sistema Autônomo de Vídeos (100% Python)
 
-> **Nota:** este arquivo havia desaparecido do repositório em algum ponto
-> entre a Fase 3 e a Fase 4 (confirmado comparando auditorias — não é
-> intencional). Foi recriado e atualizado para refletir o estado real do
-> projeto nesta auditoria. Mantenha-o atualizado a cada fase — é a
-> primeira coisa que qualquer pessoa (ou agente) lê ao abrir o repositório.
+> **Nota (resolvida):** este arquivo havia desaparecido do repositório em
+> algum ponto entre a Fase 3 e a Fase 4. Investigação via `git log --all
+> --full-history -- README.md` confirmou que não houve um commit de
+> remoção explícito — o arquivo simplesmente deixou de ser rastreado em
+> algum momento após o commit `c218719`. Restaurado integralmente; sem
+> indício de que vá se repetir.
 
 Sistema modular para geração autônoma de vídeos "faceless" para YouTube,
 substituindo o fluxo n8n `Scrapper` por uma arquitetura 100% Python,
