@@ -13,11 +13,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://usuario:senha@localhost:5432/faceless_pipeline"
 
     # --- LiteLLM / Modelos ---
-    litellm_proxy_url: str | None = None
+    litellm_master_key: str | None = None
+    litellm_base_url: str | None = None
     local_model_name: str = "ollama/qwen2.5:7b"
     local_model_base_url: str = "http://localhost:11434"
-    cloud_model_ideacao: str = "gemini/gemini-1.5-flash"
-    cloud_model_roteiro: str = "anthropic/claude-3-5-sonnet-20240620"
+    cloud_model_ideacao: str = "openai/gemini-3.6-flash"
+    cloud_model_roteiro: str = "openai/gemini-3.1-pro"
 
     # --- Áudio / GPU ---
     whisper_model_size: str = "medium"

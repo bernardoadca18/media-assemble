@@ -122,7 +122,7 @@ pytest -v
 | 2 | Roteirização completa | Concluída |
 | 3 | Áudio (F5-TTS + Whisper + WER) | Concluída |
 | 4 | Assets visuais (banco local + fallback Pexels) | Concluída |
-| 5 | Renderização (Remotion) | Concluída |
+| 5 | Renderização (Remotion) | Concluída ✓ (validado com render real) |
 | 6 | Orquestração end-to-end + observabilidade | Não iniciado |
 | 7 | Hardening, multi-nicho, deploy | Não iniciado |
 

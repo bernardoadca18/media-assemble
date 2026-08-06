@@ -40,9 +40,20 @@ async def complete_cloud(prompt: str, model: str | None = None, **kwargs) -> str
     mais qualidade/raciocínio, como ideação e roteirização. Não usa gpu_lock.
     """
     modelo_alvo = model or settings.cloud_model_ideacao
+
+    # Configurar proxy LiteLLM se disponível
+    api_base = None
+    api_key = None
+    if settings.litellm_base_url and settings.litellm_master_key:
+        api_base = settings.litellm_base_url
+        api_key = settings.litellm_master_key
+        logger.debug(f"Usando proxy LiteLLM: {api_base}")
+
     resposta = await litellm.acompletion(
         model=modelo_alvo,
         messages=[{"role": "user", "content": prompt}],
+        api_base=api_base,
+        api_key=api_key,
         **kwargs,
     )
     return resposta.choices[0].message.content

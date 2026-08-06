@@ -1,119 +1,68 @@
-# Faceless Pipeline
+# Remotion — Camada de Renderização (Fase 5)
 
-Sistema modular para geração autônoma de vídeos "faceless" para YouTube. Arquitetura 100% Python, otimizada para execução local com GPU única (RTX 2060, 12GB VRAM).
+Subprojeto Node.js/React responsável por renderizar o vídeo final a
+partir do roteiro gerado pelo pipeline Python. Invocado via `subprocess`
+por `services/render/remotion_bridge.py` — não é pensado para ser rodado
+isoladamente em produção, mas é útil rodar `npm run start` durante o
+desenvolvimento de componentes.
 
-> **Nota (2026-08-05):** Este arquivo foi restaurado após ser removido inadvertidamente em commits posteriores a `c218719`. Investigação via `git log --all --full-history -- README.md` confirmou que não houve commit de remoção explícito — o arquivo deixou de ser rastreado em algum momento entre as Fases 3 e 4. Conteúdo restaurado integralmente.
+> Documentação geral do projeto (setup Python, banco de dados, status das
+> fases) vive no `README.md` na raiz do repositório — este arquivo cobre
+> só o que é específico deste subprojeto.
 
-## Instalação
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# ou .venv\Scripts\activate no Windows
-
-pip install -r requirements.txt
-cp .env.example .env  # preencher credenciais
-```
-
-### Banco de dados (PostgreSQL + Alembic)
+## Setup
 
 ```bash
-createdb faceless_pipeline
+cd remotion
+npm install
 ```
 
-Configure no `.env`:
-```
-DATABASE_URL=postgresql+asyncpg://usuario:senha@localhost:5432/faceless_pipeline
-```
-
-Rode as migrations:
-```bash
-alembic upgrade head
-```
-
-Isso cria o schema `dados` e as tabelas `videos_ideias`, `roteiros` e `execucoes_pipeline`.
-
-## Uso
-
-### Pipeline completo (Fase 1 a Fase 5)
+## Comandos
 
 ```bash
-python main.py --run-once
+npm run start   # Abre o Remotion Studio (preview interativo dos componentes)
+npm run render  # Renderiza usando os defaultProps (útil para testar rapidamente)
 ```
 
-Este comando executa:
-1. Coleta tendências do Google Trends
-2. Normaliza via LLM
-3. Gera 5 ideias de vídeo
-4. Seleciona a melhor ideia
-5. Gera roteiro completo em JSON
-6. Gera áudio para cada cena (F5-TTS + Whisper)
-7. Resolve assets visuais (banco local + Pexels)
-8. Renderiza vídeo final via Remotion
+Em produção, a renderização real é disparada pelo bridge Python
+(`services/render/remotion_bridge.py::renderizar_video`), que monta o
+comando `npx remotion render VideoPrincipal <saida> --props=<roteiro.json>`.
 
-### Apenas Fase 1 (ideação)
+## Como os dados chegam até aqui
 
-```bash
-python -m pipeline.orchestrator
+O bridge Python:
+1. Copia os assets do roteiro (áudio da narração, imagens/vídeos de cada
+   cena) para `public/`, com nomes únicos por `video_id`/`cena_id`.
+2. Reescreve os paths desses assets no roteiro serializado para apontarem
+   para os nomes de arquivo em `public/` (não mais paths absolutos do
+   sistema de arquivos).
+3. Serializa o roteiro inteiro (já com os paths reescritos) em um JSON
+   temporário e passa via `--props=<caminho>`.
+
+O Remotion CLI entrega o conteúdo desse arquivo **diretamente como objeto
+de props** para `VideoComposition` (não é um caminho para outro arquivo)
+— por isso os componentes usam `staticFile(path)` para resolver esses
+nomes de arquivo relativos a `public/`, em vez de tentar ler o disco
+diretamente.
+
+## Estrutura dos componentes
+
+```
+src/
+  Root.tsx                    # Registra a composição, calcula duração real via calculateMetadata
+  index.ts                    # Entry point (registerRoot)
+  components/
+    VideoComposition.tsx      # Compõe todas as cenas + trilha de áudio
+    SceneRenderer.tsx         # Renderiza uma cena (imagem/vídeo + overlays)
+    KenBurnsImage.tsx         # Efeito de zoom/pan suave em imagens estáticas
+    SubtitlesOverlay.tsx      # Legendas dinâmicas palavra-a-palavra
+    AudioTrack.tsx            # Narração + trilha de fundo com ducking
 ```
 
-### Testes
+## Status
 
-```bash
-pytest -v
-```
-
-## Arquitetura
-
-```
-pipeline/       # Orquestração, configuração e schemas (fonte da verdade)
-services/       # Um módulo por etapa (trends, ideation, scripting, audio, visual, render)
-db/             # Modelos SQLAlchemy e acesso a dados
-utils/          # Logging estruturado e cliente LiteLLM
-remotion/       # Projeto Node.js/React (Fase 5)
-data/           # Assets locais, áudio temporário, saída final
-tests/          # Testes automatizados
-```
-
-### Princípio de concorrência
-
-Toda chamada que toca a GPU local (LLM local via LiteLLM, F5-TTS, Faster-Whisper) **deve** passar pelo `gpu_task` de `pipeline/gpu_lock.py`. Chamadas a modelos em nuvem (Claude, Gemini, OpenAI) não precisam desse lock.
-
-## Status das fases
-
-| Fase | Escopo | Status |
-|---|---|---|
-| 1 | Tendências + Ideação | ✅ Implementado |
-| 2 | Roteirização completa | ✅ Implementado |
-| 3 | Áudio (F5-TTS + Whisper + WER) | ✅ Implementado |
-| 4 | Assets visuais | ✅ Implementado |
-| 5 | Renderização (Remotion) | ✅ Implementado |
-| 6 | Orquestração end-to-end + observabilidade | 🔨 Em desenvolvimento |
-| 7 | Hardening, multi-nicho, deploy | Não iniciado |
-
-Ver `RELATORIO_FASES_DESENVOLVIMENTO.md` para detalhes de cada fase.
-
-## Fase 2: Roteirização
-
-### Persistência
-
-Roteiros são persistidos na tabela `dados.roteiros` no PostgreSQL.
-
-**Vantagens:**
-- Consultas SQL diretas para análise e debugging
-- Versionamento via campo `criado_em`
-- Backup integrado com o restante do projeto
-
-### Schema do roteiro
-
-O schema `Roteiro` em `pipeline/schemas.py` é a fonte da verdade. O agente de roteirização:
-- Valida resposta do LLM contra o schema Pydantic
-- Aplica regras de negócio (duração de cenas, animações, texto destaque)
-- Realiza retry com correção em caso de falha de validação
-
-### Regras de negócio validadas
-
-- Mínimo de 10 cenas por roteiro
-- Duração de cena: 3-8 segundos
-- Animações não podem repetir 3x consecutivas
-- Texto destaque em no máximo 1/3 das cenas
+Fase 5 implementada, mas **ainda sem validação de um render real
+assistido de ponta a ponta** — ver `RELATORIO_FASES_DESENVOLVIMENTO.md`
+e a auditoria mais recente na raiz do projeto antes de considerar esta
+fase encerrada. O status agregado de todas as fases fica só no `README.md`
+da raiz, para evitar duas fontes da verdade divergentes.

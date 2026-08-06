@@ -101,7 +101,7 @@ export const RemotionRoot: React.FC = () => {
     <>
       <Composition
         id="VideoPrincipal"
-        component={VideoComposition}
+        component={VideoComposition as unknown as React.FC<Record<string, unknown>>}
         durationInFrames={300} // Fallback para o Studio antes de props reais; sobrescrito por calculateMetadata em render real
         fps={FPS}
         width={1920}
@@ -109,7 +109,7 @@ export const RemotionRoot: React.FC = () => {
         defaultProps={roteiroPadrao}
         calculateMetadata={({ props }) => {
           return {
-            durationInFrames: calcularDuracaoTotalFrames(props as RoteiroData),
+            durationInFrames: calcularDuracaoTotalFrames(props as unknown as RoteiroData),
           };
         }}
       />
