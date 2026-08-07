@@ -149,6 +149,49 @@ async def buscar_roteiro(video_id: str):
         return Roteiro.model_validate(dados)
 
 
-async def salvar_execucao(roteiro: dict, caminho_final: str) -> None:
-    """TODO (Fase 6): persistir o resultado final de uma execução completa."""
-    raise NotImplementedError("Fase 6: implementar rastreabilidade de execuções completas.")
+async def salvar_execucao(
+    video_id: str | None,
+    nicho: str,
+    etapa_atual: str,
+    sucesso: bool | None = None,
+    caminho_video_final: str | None = None,
+    wer_medio: float | None = None,
+) -> None:
+    """
+    Persiste o estado de uma execução do pipeline (rastreabilidade da Fase 6).
+
+    Se já existir um registro com o mesmo video_id, atualiza (upsert).
+    Se video_id for None (ex: falha na ideação antes de gerar um ID),
+    cria um registro sem video_id.
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        # Buscar registro existente (se houver video_id)
+        existente = None
+        if video_id:
+            stmt = select(ExecucaoPipeline).where(ExecucaoPipeline.video_id == video_id)
+            resultado = await session.execute(stmt)
+            existente = resultado.scalar_one_or_none()
+
+        if existente:
+            # Atualizar existente
+            existente.etapa_atual = etapa_atual
+            existente.sucesso = sucesso
+            if caminho_video_final is not None:
+                existente.caminho_video_final = caminho_video_final
+            if wer_medio is not None:
+                existente.wer_medio = wer_medio
+        else:
+            # Criar novo
+            registro = ExecucaoPipeline(
+                video_id=video_id or "",
+                nicho=nicho,
+                etapa_atual=etapa_atual,
+                sucesso=sucesso,
+                caminho_video_final=caminho_video_final,
+                wer_medio=wer_medio,
+            )
+            session.add(registro)
+
+        await session.commit()

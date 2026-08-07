@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from pipeline.schemas import Ideia
+from pipeline.orchestrator import rodar_etapa_ideacao
 
 
 class TestRodarEtapaIdeacao:
@@ -19,17 +20,16 @@ class TestRodarEtapaIdeacao:
             Ideia(topico="Star Wars", titulo_sugerido="Os Sith Mais Poderosos da História", descricao_breve="Lore"),
         ]
 
-        with patch("services.trends.scraper.coletar_tendencias", new_callable=AsyncMock) as mock_coletar, \
-             patch("services.trends.normalizer.normalizar_tendencias", new_callable=AsyncMock) as mock_normalizar, \
-             patch("services.ideation.agent.gerar_ideias", new_callable=AsyncMock) as mock_ideias, \
-             patch("db.models.salvar_ideias", new_callable=AsyncMock) as mock_salvar:
+        with patch("pipeline.orchestrator.coletar_tendencias", new_callable=AsyncMock) as mock_coletar, \
+             patch("pipeline.orchestrator.normalizar_tendencias", new_callable=AsyncMock) as mock_normalizar, \
+             patch("pipeline.orchestrator.gerar_ideias", new_callable=AsyncMock) as mock_ideias, \
+             patch("pipeline.orchestrator.salvar_ideias", new_callable=AsyncMock) as mock_salvar:
 
             mock_coletar.return_value = ["Naruto", "One Piece", "Elden Ring"]
             mock_normalizar.return_value = ["Naruto", "One Piece", "Elden Ring"]
             mock_ideias.return_value = ideias_mock
             mock_salvar.return_value = None
 
-            from pipeline.orchestrator import rodar_etapa_ideacao
             resultado = await rodar_etapa_ideacao("cultura_pop")
 
             assert len(resultado) == 5
@@ -41,10 +41,10 @@ class TestRodarEtapaIdeacao:
     @pytest.mark.asyncio
     async def test_fluxo_sem_tendencias(self):
         """Testa comportamento quando não há tendências disponíveis."""
-        with patch("services.trends.scraper.coletar_tendencias", new_callable=AsyncMock) as mock_coletar, \
-             patch("services.trends.normalizer.normalizar_tendencias", new_callable=AsyncMock) as mock_normalizar, \
-             patch("services.ideation.agent.gerar_ideias", new_callable=AsyncMock) as mock_ideias, \
-             patch("db.models.salvar_ideias", new_callable=AsyncMock) as mock_salvar:
+        with patch("pipeline.orchestrator.coletar_tendencias", new_callable=AsyncMock) as mock_coletar, \
+             patch("pipeline.orchestrator.normalizar_tendencias", new_callable=AsyncMock) as mock_normalizar, \
+             patch("pipeline.orchestrator.gerar_ideias", new_callable=AsyncMock) as mock_ideias, \
+             patch("pipeline.orchestrator.salvar_ideias", new_callable=AsyncMock) as mock_salvar:
 
             mock_coletar.return_value = []
             mock_normalizar.return_value = []
@@ -54,7 +54,6 @@ class TestRodarEtapaIdeacao:
             ]
             mock_salvar.return_value = None
 
-            from pipeline.orchestrator import rodar_etapa_ideacao
             resultado = await rodar_etapa_ideacao("cultura_pop")
 
             # Mesmo sem tendências, deve gerar 5 ideias (evergreen)

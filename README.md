@@ -123,7 +123,7 @@ pytest -v
 | 3 | Áudio (F5-TTS + Whisper + WER) | Concluída |
 | 4 | Assets visuais (banco local + fallback Pexels) | Concluída |
 | 5 | Renderização (Remotion) | Concluída ✓ (validado com render real) |
-| 6 | Orquestração end-to-end + observabilidade | Não iniciado |
+| 6 | Orquestração end-to-end + observabilidade | Concluída |
 | 7 | Hardening, multi-nicho, deploy | Não iniciado |
 
 Cada execução de `rodar_pipeline_completo` persiste o roteiro no banco
@@ -167,3 +167,93 @@ npx remotion render src/index.ts VideoPrincipal out/video.mp4
 ```
 
 O bridge Python (`services/render/remotion_bridge.py`) automatiza esse processo, serializando o roteiro para JSON e passando como props para a composição.
+
+## Fase 6 — Orquestração End-to-End e Observabilidade
+
+A Fase 6 implementa tratamento de erros por etapa, persistência de estado de execução e rastreabilidade completa do pipeline.
+
+### Tratamento de erros por etapa
+
+Cada uma das 5 fases do pipeline é envolvida em um bloco `try/except`:
+- **Ideação (Fase 1)**: falha é registrada com `video_id=None` (ainda não gerado)
+- **Roteirização (Fase 2)**: falha capturada antes da geração do `video_id`
+- **Áudio (Fase 3)**: falha registrada com o `video_id` já disponível
+- **Assets (Fase 4)**: falha registrada com `video_id`
+- **Renderização (Fase 5)**: falha registrada com `video_id`
+
+**Decisão de design**: quando uma fase falha, a execução é interrompida imediatamente — o pipeline **não continua** para a próxima fase. Isso evita processamento desnecessário e garante que cada vídeo seja gerado de forma íntegra, do início ao fim.
+
+### Persistência de execuções
+
+A tabela `dados.execucoes_pipeline` armazena o histórico de cada execução:
+
+| Coluna | Descrição |
+|--------|-----------|
+| `video_id` | Identificador único do vídeo (ou string vazia se falhou antes da geração) |
+| `nicho` | Nicho processado (ex: `cultura_pop`) |
+| `etapa_atual` | Última fase executada (`ideacao`, `roteirizacao`, `audio`, `assets`, `renderizacao`) |
+| `sucesso` | `True` se concluiu com sucesso, `False` se falhou, `NULL` se em andamento |
+| `caminho_video_final` | Path do vídeo renderizado (apenas se `sucesso=True`) |
+| `wer_medio` | WER médio das cenas (apenas se `sucesso=True`) |
+| `criado_em` | Timestamp de criação do registro |
+| `atualizado_em` | Timestamp da última atualização |
+
+### Consultando o histórico de execuções
+
+Para ver as últimas 10 execuções:
+
+```sql
+SELECT
+    video_id,
+    nicho,
+    etapa_atual,
+    sucesso,
+    wer_medio,
+    caminho_video_final,
+    atualizado_em
+FROM dados.execucoes_pipeline
+ORDER BY atualizado_em DESC
+LIMIT 10;
+```
+
+Para ver execuções com falha:
+
+```sql
+SELECT video_id, etapa_atual, atualizado_em
+FROM dados.execucoes_pipeline
+WHERE sucesso = FALSE
+ORDER BY atualizado_em DESC;
+```
+
+Para ver taxa de sucesso por nicho:
+
+```sql
+SELECT
+    nicho,
+    COUNT(*) AS total,
+    SUM(CASE WHEN sucesso THEN 1 ELSE 0 END) AS sucessos,
+    ROUND(100.0 * SUM(CASE WHEN sucesso THEN 1 ELSE 0 END) / COUNT(*), 2) AS taxa_sucesso_pct
+FROM dados.execucoes_pipeline
+WHERE sucesso IS NOT NULL
+GROUP BY nicho
+ORDER BY nicho;
+```
+
+### Logging estruturado
+
+Todos os logs incluem campos estruturados para correlação:
+
+```python
+logger.error(
+    "pipeline.roteirizacao.falhou",
+    extra={
+        "nicho": nicho,
+        "video_id": video_id,
+        "erro_tipo": type(erro).__name__,
+        "erro_msg": str(erro),
+    },
+    exc_info=True,
+)
+```
+
+Isso permite filtrar logs por `video_id`, `nicho` ou tipo de erro em sistemas de observabilidade (Grafana Loki, ELK, etc.).
