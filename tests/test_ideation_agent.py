@@ -1,7 +1,7 @@
 """Testes para o agente de ideação."""
 import json
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from pipeline.schemas import Ideia, RespostaIdeacao
 from services.ideation.agent import _parsear_resposta, gerar_ideias
@@ -104,9 +104,11 @@ class TestGerarIdeias:
         })
 
         with patch("services.ideation.agent.buscar_titulos_recentes", new_callable=AsyncMock) as mock_titulos, \
-             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm:
+             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm, \
+             patch("db.models.buscar_ideias_manuais_pendentes", new_callable=AsyncMock) as mock_manuais:
             mock_titulos.return_value = []
             mock_llm.return_value = resposta_mock
+            mock_manuais.return_value = []  # Sem ideias manuais
 
             ideias = await gerar_ideias("cultura_pop", ["Jujutsu Kaisen", "Dune", "Elden Ring"])
 
@@ -126,9 +128,11 @@ class TestGerarIdeias:
         })
 
         with patch("services.ideation.agent.buscar_titulos_recentes", new_callable=AsyncMock) as mock_titulos, \
-             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm:
+             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm, \
+             patch("db.models.buscar_ideias_manuais_pendentes", new_callable=AsyncMock) as mock_manuais:
             mock_titulos.return_value = ["Vídeo Antigo 1", "Vídeo Antigo 2"]
             mock_llm.return_value = resposta_mock
+            mock_manuais.return_value = []  # Sem ideias manuais
 
             await gerar_ideias("cultura_pop", ["Tendência 1"])
 
@@ -141,9 +145,137 @@ class TestGerarIdeias:
     async def test_gerar_ideias_llm_retorna_invalido(self):
         """Testa tratamento de erro quando LLM retorna JSON inválido."""
         with patch("services.ideation.agent.buscar_titulos_recentes", new_callable=AsyncMock) as mock_titulos, \
-             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm:
+             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm, \
+             patch("db.models.buscar_ideias_manuais_pendentes", new_callable=AsyncMock) as mock_manuais:
             mock_titulos.return_value = []
             mock_llm.return_value = "Isso não é JSON válido"
+            mock_manuais.return_value = []  # Sem ideias manuais
 
             with pytest.raises(json.JSONDecodeError):
                 await gerar_ideias("cultura_pop", ["Tendência 1"])
+
+    @pytest.mark.asyncio
+    async def test_gerar_ideias_com_duplicidade_substituicao_sucesso(self):
+        """Testa substituição de ideia duplicada."""
+        resposta_mock = json.dumps({
+            "ideias": [
+                {"topico": "Tópico1", "titulo_sugerido": "Título Duplicado", "descricao_breve": "Desc 1"},
+                {"topico": "Tópico2", "titulo_sugerido": "Título Único", "descricao_breve": "Desc 2"},
+                {"topico": "Tópico3", "titulo_sugerido": "Título 3", "descricao_breve": "Desc 3"},
+                {"topico": "Tópico4", "titulo_sugerido": "Título 4", "descricao_breve": "Desc 4"},
+                {"topico": "Tópico5", "titulo_sugerido": "Título 5", "descricao_breve": "Desc 5"},
+            ]
+        })
+
+        resposta_substituicao = json.dumps({
+            "topico": "Tópico Novo",
+            "titulo_sugerido": "Título Substituto",
+            "descricao_breve": "Nova descrição"
+        })
+
+        mock_config = MagicMock()
+        mock_config.descricao = "Nicho de cultura pop"
+        mock_config.prompt_roteiro_adicional = None
+
+        with patch("services.ideation.agent.buscar_titulos_recentes", new_callable=AsyncMock) as mock_titulos, \
+             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm, \
+             patch("services.ideation.agent.checar_duplicidade_semantica", new_callable=AsyncMock) as mock_dup, \
+             patch("services.ideation.agent.obter_config_nicho") as mock_obter_config, \
+             patch("db.models.buscar_ideias_manuais_pendentes", new_callable=AsyncMock) as mock_manuais:
+
+            mock_titulos.return_value = []
+            mock_obter_config.return_value = mock_config
+            mock_manuais.return_value = []  # Sem ideias manuais
+            # Primeira chamada = ideia inicial, segunda = substituição
+            mock_llm.side_effect = [resposta_mock, resposta_substituicao]
+            # Primeira ideia é duplicata, depois a substituição NÃO é duplicata, depois as demais não são
+            mock_dup.side_effect = [True, False, False, False, False, False]
+
+            ideias = await gerar_ideias("cultura_pop", ["Tendência 1"])
+
+            assert len(ideias) == 5
+            # Primeira ideia deve ter sido substituída
+            assert ideias[0].titulo_sugerido == "Título Substituto"
+            assert ideias[0].requer_revisao_manual is False
+            # Verificar que checagem foi chamada 6 vezes (5 iniciais + 1 substituição)
+            assert mock_dup.call_count == 6
+
+    @pytest.mark.asyncio
+    async def test_gerar_ideias_duplicidade_limite_tentativas_atingido(self):
+        """Testa que após limite de tentativas, ideia é marcada para revisão."""
+        resposta_mock = json.dumps({
+            "ideias": [
+                {"topico": "Tópico1", "titulo_sugerido": "Título Duplicado", "descricao_breve": "Desc 1"},
+                {"topico": "Tópico2", "titulo_sugerido": "Título Único", "descricao_breve": "Desc 2"},
+                {"topico": "Tópico3", "titulo_sugerido": "Título 3", "descricao_breve": "Desc 3"},
+                {"topico": "Tópico4", "titulo_sugerido": "Título 4", "descricao_breve": "Desc 4"},
+                {"topico": "Tópico5", "titulo_sugerido": "Título 5", "descricao_breve": "Desc 5"},
+            ]
+        })
+
+        resposta_substituicao = json.dumps({
+            "topico": "Tópico Novo",
+            "titulo_sugerido": "Ainda Duplicado",
+            "descricao_breve": "Nova descrição"
+        })
+
+        mock_config = MagicMock()
+        mock_config.descricao = "Nicho de cultura pop"
+        mock_config.prompt_roteiro_adicional = None
+
+        with patch("services.ideation.agent.buscar_titulos_recentes", new_callable=AsyncMock) as mock_titulos, \
+             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm, \
+             patch("services.ideation.agent.checar_duplicidade_semantica", new_callable=AsyncMock) as mock_dup, \
+             patch("services.ideation.agent.obter_config_nicho") as mock_obter_config, \
+             patch("services.ideation.agent.LIMITE_TENTATIVAS_SUBSTITUICAO", 3), \
+             patch("db.models.buscar_ideias_manuais_pendentes", new_callable=AsyncMock) as mock_manuais:
+
+            mock_titulos.return_value = []
+            mock_obter_config.return_value = mock_config
+            mock_manuais.return_value = []  # Sem ideias manuais
+            # Resposta inicial + 3 tentativas de substituição (mas todas falham porque complete_cloud não tem mais valores)
+            mock_llm.side_effect = [resposta_mock, resposta_substituicao, resposta_substituicao, resposta_substituicao]
+            # Todas as verificações retornam duplicata
+            mock_dup.return_value = True
+
+            ideias = await gerar_ideias("cultura_pop", ["Tendência 1"])
+
+            assert len(ideias) == 5
+            # Primeira ideia deve estar marcada para revisão
+            assert ideias[0].requer_revisao_manual is True
+            assert "Não foi possível gerar substituição única" in ideias[0].motivo_revisao
+            # Verificar que houve múltiplas tentativas (número exato pode variar dependendo de falhas)
+            assert mock_dup.call_count >= 5  # Pelo menos 1 verificação por ideia
+
+    @pytest.mark.asyncio
+    async def test_gerar_ideias_sem_duplicidade(self):
+        """Testa fluxo normal quando não há duplicidade."""
+        resposta_mock = json.dumps({
+            "ideias": [
+                {"topico": "Tópico1", "titulo_sugerido": "Título 1", "descricao_breve": "Desc 1"},
+                {"topico": "Tópico2", "titulo_sugerido": "Título 2", "descricao_breve": "Desc 2"},
+                {"topico": "Tópico3", "titulo_sugerido": "Título 3", "descricao_breve": "Desc 3"},
+                {"topico": "Tópico4", "titulo_sugerido": "Título 4", "descricao_breve": "Desc 4"},
+                {"topico": "Tópico5", "titulo_sugerido": "Título 5", "descricao_breve": "Desc 5"},
+            ]
+        })
+
+        with patch("services.ideation.agent.buscar_titulos_recentes", new_callable=AsyncMock) as mock_titulos, \
+             patch("services.ideation.agent.complete_cloud", new_callable=AsyncMock) as mock_llm, \
+             patch("services.ideation.agent.checar_duplicidade_semantica", new_callable=AsyncMock) as mock_dup, \
+             patch("db.models.buscar_ideias_manuais_pendentes", new_callable=AsyncMock) as mock_manuais:
+
+            mock_titulos.return_value = []
+            mock_llm.return_value = resposta_mock
+            mock_manuais.return_value = []  # Sem ideias manuais
+            # Nenhuma ideia é duplicata
+            mock_dup.return_value = False
+
+            ideias = await gerar_ideias("cultura_pop", ["Tendência 1"])
+
+            assert len(ideias) == 5
+            # Nenhuma ideia deve requerer revisão
+            for ideia in ideias:
+                assert ideia.requer_revisao_manual is False
+            # Verificar que checagem foi chamada para cada ideia
+            assert mock_dup.call_count == 5

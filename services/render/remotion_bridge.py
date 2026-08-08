@@ -235,3 +235,100 @@ def _executar_comando_remotion(comando: list[str], cwd: Path) -> dict[str, Any]:
             "stdout": "",
             "stderr": str(e),
         }
+
+async def renderizar_video_short(
+    roteiro: Roteiro,
+    output_path: Path | None = None,
+) -> Path:
+    """
+    Renderiza vídeo no formato Short (9:16 vertical).
+    Subfase 8.5 — Suporte a Shorts.
+
+    Args:
+        roteiro: Roteiro de short com áudio e assets resolvidos
+        output_path: Caminho opcional para o vídeo de saída
+
+    Returns:
+        Caminho do arquivo de vídeo gerado
+
+    Raises:
+        RuntimeError: Se a renderização falhar
+    """
+    logger.info(
+        "renderizar_video_short.iniciando",
+        extra={
+            "video_id": roteiro.metadata.video_id,
+            "formato": roteiro.metadata.formato,
+            "video_origem": roteiro.metadata.video_origem_id,
+        },
+    )
+
+    if roteiro.metadata.formato != "short":
+        logger.warning(
+            "renderizar_video_short.formato_incorreto",
+            extra={"formato": roteiro.metadata.formato},
+        )
+
+    # Determinar caminho de saída
+    if output_path is None:
+        output_dir = settings.data_dir / "output_final"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{roteiro.metadata.video_id}_short.mp4"
+        output_path = output_dir / filename
+
+    # Serializar roteiro para JSON
+    roteiro_json = roteiro.model_dump_json(indent=2)
+
+    # Criar arquivo temporário para o props
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        delete=False,
+        dir=settings.remotion_dir,
+    ) as roteiro_temp_file:
+        roteiro_temp_file.write(roteiro_json)
+        roteiro_temp_path = Path(roteiro_temp_file.name)
+
+    try:
+        # Construir comando Remotion para composição VideoShort
+        comando = [
+            "npx",
+            "remotion",
+            "render",
+            "VideoShort",
+            str(output_path),
+            f"--props={roteiro_temp_path.name}",
+            f"--concurrency={settings.remotion_concurrency}",
+            "--codec=h264",
+            "--quality=100",
+        ]
+
+        # Executar comando de forma assíncrona
+        loop = asyncio.get_event_loop()
+        resultado = await loop.run_in_executor(
+            None,
+            _executar_comando_remotion,
+            comando,
+            Path(settings.remotion_dir),
+        )
+
+        if resultado["returncode"] != 0:
+            raise RuntimeError(
+                f"Renderização do short falhou: {resultado['stderr']}"
+            )
+
+        logger.info(
+            "renderizar_video_short.sucesso",
+            extra={
+                "video_id": roteiro.metadata.video_id,
+                "output": str(output_path),
+            },
+        )
+
+        return output_path
+
+    finally:
+        # Limpar arquivo temporário
+        if roteiro_temp_path.exists():
+            roteiro_temp_path.unlink()
+            logger.debug("remotion.temp_removido", extra={"path": str(roteiro_temp_path)})

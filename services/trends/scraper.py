@@ -17,8 +17,10 @@ Escopo da Fase 1:
 """
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 
+import feedparser
 from pytrends.request import TrendReq
 
 logger = logging.getLogger("services.trends.scraper")
@@ -26,13 +28,27 @@ logger = logging.getLogger("services.trends.scraper")
 # Executor para rodar operações síncronas do pytrends
 _executor = ThreadPoolExecutor(max_workers=1)
 
-# Mapeamento de nicho para categoria do Google Trends
-# Categorias: https://github.com/pat310/google-trends-api/wiki/Google-Trends-Categories
-NICHO_PARA_CATEGORIA_GOOGLE_TRENDS = {
-    "cultura_pop": 22,  # Entertainment (Entretenimento)
-    "tecnologia": 5,    # Technology (Tecnologia)
-    "futebol": 20,      # Sports (Esportes)
-}
+def _obter_categoria_google_trends(nicho: str) -> int:
+    """
+    Obtém a categoria do Google Trends para o nicho.
+
+    Args:
+        nicho: Nome do nicho
+
+    Returns:
+        ID da categoria do Google Trends
+    """
+    try:
+        from pipeline.nichos import obter_config_nicho
+        config = obter_config_nicho(nicho)
+        return config.categoria_google_trends
+    except ValueError:
+        # Fallback para categoria padrão (Entertainment)
+        logger.warning(
+            "scraper.nicho_nao_configurado",
+            extra={"nicho": nicho, "fallback_categoria": 22}
+        )
+        return 22
 
 
 def _coletar_google_trends_sync(nicho: str, limite: int = 20) -> list[str]:
@@ -47,7 +63,7 @@ def _coletar_google_trends_sync(nicho: str, limite: int = 20) -> list[str]:
         Lista de tópicos em alta
     """
     try:
-        categoria = NICHO_PARA_CATEGORIA_GOOGLE_TRENDS.get(nicho, 22)
+        categoria = _obter_categoria_google_trends(nicho)
 
         pytrends = TrendReq(
             hl="pt-BR",
@@ -110,31 +126,139 @@ async def _coletar_google_trends(nicho: str, limite: int = 20) -> list[str]:
     )
 
 
-async def _coletar_reddit_stub(nicho: str) -> list[str]:
+async def _coletar_reddit_rss(nicho: str, limite_por_subreddit: int = 5) -> list[str]:
     """
-    TODO (Fase futura): Implementar coleta via API do Reddit.
+    Coleta posts em alta de subreddits via RSS público.
 
-    Subreddits sugeridos por nicho:
-      - cultura_pop: r/anime, r/movies, r/gaming, r/television
-      - tecnologia: r/technology, r/programming, r/gadgets
-      - futebol: r/soccer, r/football
+    Usa feeds RSS públicos do Reddit, sem necessidade de autenticação.
+    Busca posts de /hot de cada subreddit configurado para o nicho.
 
-    Por ora, retorna lista vazia sem quebrar o pipeline.
+    Args:
+        nicho: Nicho do canal (cultura_pop, tecnologia, futebol)
+        limite_por_subreddit: Máximo de posts por subreddit
+
+    Returns:
+        Lista de títulos de posts em alta
     """
-    logger.info("reddit.stub_nao_implementado", extra={"nicho": nicho})
-    return []
+    try:
+        from pipeline.nichos import obter_config_nicho
+        config = obter_config_nicho(nicho)
+        subreddits = config.subreddits_sugeridos
+    except ValueError:
+        logger.warning("reddit_rss.nicho_nao_configurado", extra={"nicho": nicho})
+        return []
+
+    tendencias = []
+
+    for subreddit in subreddits:
+        try:
+            # Feed RSS de posts "hot" do subreddit
+            url = f"https://www.reddit.com/r/{subreddit}/hot/.rss"
+
+            # feedparser é síncrono mas leve, executado diretamente
+            feed = feedparser.parse(url)
+
+            if feed.bozo and feed.bozo_exception:
+                logger.warning(
+                    "reddit_rss.feed_erro",
+                    extra={"subreddit": subreddit, "erro": str(feed.bozo_exception)}
+                )
+                continue
+
+            for i, entry in enumerate(feed.entries[:limite_por_subreddit]):
+                if hasattr(entry, "title"):
+                    tendencias.append(entry.title)
+
+            logger.info(
+                "reddit_rss.posts_coletados",
+                extra={"subreddit": subreddit, "total": min(len(feed.entries), limite_por_subreddit)}
+            )
+
+        except Exception as e:
+            logger.error(
+                "reddit_rss.erro_subreddit",
+                extra={"subreddit": subreddit, "erro": str(e)}
+            )
+            continue
+
+    logger.info(
+        "reddit_rss.coleta_concluida",
+        extra={"nicho": nicho, "total_posts": len(tendencias)}
+    )
+
+    return tendencias
 
 
-async def _coletar_youtube_trending_stub(nicho: str) -> list[str]:
+async def _coletar_youtube_trending(nicho: str, limite: int = 10) -> list[str]:
     """
-    TODO (Fase futura): Implementar coleta de vídeos em alta do YouTube.
+    Coleta vídeos em tendência via YouTube Data API v3.
 
-    Requer YouTube Data API v3 (chave de API necessária).
+    Usa categoria de vídeo específica por nicho para buscar trending videos.
 
-    Por ora, retorna lista vazia sem quebrar o pipeline.
+    Args:
+        nicho: Nicho do canal (cultura_pop, tecnologia, futebol)
+        limite: Máximo de vídeos a retornar
+
+    Returns:
+        Lista de títulos de vídeos em tendência
+
+    Requires:
+        YOUTUBE_API_KEY configurada no ambiente
     """
-    logger.info("youtube_trending.stub_nao_implementado", extra={"nicho": nicho})
-    return []
+    api_key = os.getenv("YOUTUBE_API_KEY")
+
+    if not api_key:
+        logger.warning("youtube_trending.sem_api_key", extra={"nicho": nicho})
+        return []
+
+    try:
+        from googleapiclient.discovery import build
+        from googleapiclient.errors import HttpError
+        from pipeline.nichos import obter_config_nicho
+
+        config = obter_config_nicho(nicho)
+        categoria_id = config.categoria_google_trends
+
+        # Criar cliente da API (síncrono)
+        youtube = build("youtube", "v3", developerKey=api_key, static_discovery=False)
+
+        # Buscar vídeos em tendência para a categoria
+        # Executar chamada síncrona em thread separada
+        def fetch_trending():
+            request = youtube.videos().list(
+                part="snippet",
+                chart="mostPopular",
+                regionCode="BR",
+                videoCategoryId=categoria_id,
+                maxResults=limite
+            )
+            return request.execute()
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, fetch_trending)
+
+        titulos = [item["snippet"]["title"] for item in response.get("items", [])]
+
+        logger.info(
+            "youtube_trending.videos_coletados",
+            extra={"nicho": nicho, "categoria_id": categoria_id, "total": len(titulos)}
+        )
+
+        return titulos
+
+    except HttpError as e:
+        logger.error(
+            "youtube_trending.erro_api",
+            extra={"nicho": nicho, "status": e.resp.status, "erro": str(e)}
+        )
+        return []
+
+    except Exception as e:
+        logger.error(
+            "youtube_trending.erro_inesperado",
+            extra={"nicho": nicho, "erro": str(e)}
+        )
+        return []
 
 
 async def coletar_tendencias(nicho: str) -> list[str]:
@@ -156,8 +280,8 @@ async def coletar_tendencias(nicho: str) -> list[str]:
 
     # Coleta de todas as fontes em paralelo
     google_trends_task = _coletar_google_trends(nicho)
-    reddit_task = _coletar_reddit_stub(nicho)
-    youtube_task = _coletar_youtube_trending_stub(nicho)
+    reddit_task = _coletar_reddit_rss(nicho)
+    youtube_task = _coletar_youtube_trending(nicho)
 
     resultados = await asyncio.gather(
         google_trends_task,

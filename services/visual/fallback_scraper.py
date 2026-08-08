@@ -16,6 +16,7 @@ from typing import NamedTuple
 import httpx
 
 from pipeline.config import settings
+from utils.retry import ErroPermanente, ErroTransitorio, com_retry
 
 logger = logging.getLogger("services.visual.fallback_scraper")
 
@@ -35,21 +36,11 @@ class AssetExterno(NamedTuple):
     origem: str
 
 
-async def _buscar_pexels(query: str, tipo_asset: str) -> AssetExterno | None:
-    """
-    Busca asset na API do Pexels.
-
-    Args:
-        query: Termo de busca
-        tipo_asset: "imagem" ou "video"
-
-    Returns:
-        AssetExterno se encontrar, None caso contrário
-    """
+async def _buscar_pexels_interno(query: str, tipo_asset: str) -> dict:
+    """Implementação interna da busca no Pexels sem retry."""
     api_key = settings.pexels_api_key
     if not api_key:
-        logger.warning("fallback_scraper.pexels_sem_api_key")
-        return None
+        raise ErroPermanente("API key do Pexels não configurada")
 
     # Determina endpoint baseado no tipo
     if tipo_asset == "video":
@@ -64,28 +55,60 @@ async def _buscar_pexels(query: str, tipo_asset: str) -> AssetExterno | None:
         "page": 1,
     }
 
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(endpoint, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+async def _buscar_pexels(query: str, tipo_asset: str) -> AssetExterno | None:
+    """
+    Busca asset na API do Pexels com retry.
+
+    Args:
+        query: Termo de busca
+        tipo_asset: "imagem" ou "video"
+
+    Returns:
+        AssetExterno se encontrar, None caso contrário
+    """
+    async def _chamada():
+        try:
+            return await _buscar_pexels_interno(query, tipo_asset)
+        except httpx.HTTPStatusError as e:
+            # Rate limit (429) e erros de servidor (5xx) são transitórios
+            if e.response.status_code in (429, 502, 503, 504):
+                logger.warning(
+                    "fallback_scraper.pexels_erro_transitorio_http",
+                    extra={"status": e.response.status_code, "query": query},
+                )
+                raise ErroTransitorio(str(e)) from e
+            # Erros de cliente (4xx exceto 429) são permanentes
+            logger.error(
+                "fallback_scraper.pexels_erro_permanente_http",
+                extra={"status": e.response.status_code, "query": query},
+            )
+            raise ErroPermanente(str(e)) from e
+        except httpx.RequestError as e:
+            # Erros de conexão/timeout são transitórios
+            logger.warning(
+                "fallback_scraper.pexels_erro_transitorio_conexao",
+                extra={"erro": str(e), "query": query},
+            )
+            raise ErroTransitorio(str(e)) from e
+        except ErroPermanente:
+            raise
+        except Exception as e:
+            logger.error(
+                "fallback_scraper.pexels_erro_inesperado",
+                extra={"erro": str(e), "query": query},
+            )
+            raise ErroPermanente(str(e)) from e
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(endpoint, headers=headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            "fallback_scraper.pexels_erro_http",
-            extra={"status": e.response.status_code, "query": query},
-        )
-        return None
-    except httpx.RequestError as e:
-        logger.error(
-            "fallback_scraper.pexels_erro_conexao",
-            extra={"erro": str(e), "query": query},
-        )
-        return None
-    except Exception as e:
-        logger.error(
-            "fallback_scraper.pexels_erro_inesperado",
-            extra={"erro": str(e), "query": query},
-        )
+        data = await com_retry(_chamada, nome_operacao="pexels.busca", max_tentativas=3)
+    except (ErroPermanente, Exception):
+        # Falha após retry ou erro permanente
         return None
 
     # Processa resposta baseado no tipo
@@ -171,9 +194,43 @@ async def _processar_resposta_video_pexels(data: dict, query: str) -> AssetExter
     return await _baixar_asset(url, f"pexels_vid_{video_id}", "video")
 
 
+async def _baixar_asset_interno(url: str, nome_base: str, tipo_asset: str) -> AssetExterno:
+    """Implementação interna do download sem retry."""
+    # Garante diretório de cache
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+
+        # Determina extensão baseada no Content-Type ou URL
+        content_type = response.headers.get("content-type", "")
+        extensao = _extrair_extensao(content_type, url, tipo_asset)
+
+        # Gera nome único baseado em hash do conteúdo
+        conteudo = response.content
+        hash_conteudo = hashlib.md5(conteudo).hexdigest()[:12]
+        nome_arquivo = f"{nome_base}_{hash_conteudo}{extensao}"
+        caminho = CACHE_DIR / nome_arquivo
+
+        # Salva arquivo
+        caminho.write_bytes(conteudo)
+
+        logger.info(
+            "fallback_scraper.asset_baixado",
+            extra={
+                "url": url,
+                "caminho": str(caminho),
+                "tamanho_bytes": len(conteudo),
+            },
+        )
+
+        return AssetExterno(path=caminho, origem="fallback_pexels")
+
+
 async def _baixar_asset(url: str, nome_base: str, tipo_asset: str) -> AssetExterno | None:
     """
-    Baixa asset da URL e salva no cache local.
+    Baixa asset da URL e salva no cache local com retry.
 
     Args:
         url: URL do asset
@@ -183,55 +240,43 @@ async def _baixar_asset(url: str, nome_base: str, tipo_asset: str) -> AssetExter
     Returns:
         AssetExterno se sucesso, None caso contrário
     """
-    # Garante diretório de cache
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    async def _chamada():
+        try:
+            return await _baixar_asset_interno(url, nome_base, tipo_asset)
+        except httpx.HTTPStatusError as e:
+            # Rate limit (429) e erros de servidor (5xx) são transitórios
+            if e.response.status_code in (429, 502, 503, 504):
+                logger.warning(
+                    "fallback_scraper.download_erro_transitorio_http",
+                    extra={"status": e.response.status_code, "url": url},
+                )
+                raise ErroTransitorio(str(e)) from e
+            # Erros de cliente (4xx exceto 429) são permanentes
+            logger.error(
+                "fallback_scraper.download_erro_permanente_http",
+                extra={"status": e.response.status_code, "url": url},
+            )
+            raise ErroPermanente(str(e)) from e
+        except httpx.RequestError as e:
+            # Erros de conexão/timeout são transitórios
+            logger.warning(
+                "fallback_scraper.download_erro_transitorio_conexao",
+                extra={"erro": str(e), "url": url},
+            )
+            raise ErroTransitorio(str(e)) from e
+        except ErroPermanente:
+            raise
+        except Exception as e:
+            logger.error(
+                "fallback_scraper.download_erro_inesperado",
+                extra={"erro": str(e), "url": url},
+            )
+            raise ErroPermanente(str(e)) from e
 
     try:
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-
-            # Determina extensão baseada no Content-Type ou URL
-            content_type = response.headers.get("content-type", "")
-            extensao = _extrair_extensao(content_type, url, tipo_asset)
-
-            # Gera nome único baseado em hash do conteúdo
-            conteudo = response.content
-            hash_conteudo = hashlib.md5(conteudo).hexdigest()[:12]
-            nome_arquivo = f"{nome_base}_{hash_conteudo}{extensao}"
-            caminho = CACHE_DIR / nome_arquivo
-
-            # Salva arquivo
-            caminho.write_bytes(conteudo)
-
-            logger.info(
-                "fallback_scraper.asset_baixado",
-                extra={
-                    "url": url,
-                    "caminho": str(caminho),
-                    "tamanho_bytes": len(conteudo),
-                },
-            )
-
-            return AssetExterno(path=caminho, origem="fallback_pexels")
-
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            "fallback_scraper.download_erro_http",
-            extra={"status": e.response.status_code, "url": url},
-        )
-        return None
-    except httpx.RequestError as e:
-        logger.error(
-            "fallback_scraper.download_erro_conexao",
-            extra={"erro": str(e), "url": url},
-        )
-        return None
-    except Exception as e:
-        logger.error(
-            "fallback_scraper.download_erro_inesperado",
-            extra={"erro": str(e), "url": url},
-        )
+        return await com_retry(_chamada, nome_operacao="pexels.download", max_tentativas=3)
+    except (ErroPermanente, Exception):
+        # Falha após retry ou erro permanente
         return None
 
 

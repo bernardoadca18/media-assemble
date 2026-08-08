@@ -1,6 +1,38 @@
 import React from "react";
 import { Composition } from "remotion";
 import { VideoComposition } from "./components/VideoComposition";
+import { VideoCompositionShort } from "./components/VideoCompositionShort";
+
+// Elementos gráficos para estilo vox_motion
+export interface ComparacaoNumerica {
+  valor_principal: string;
+  rotulo_principal: string;
+  valor_comparacao?: string;
+  rotulo_comparacao?: string;
+  unidade?: string;
+}
+
+export interface LinhaDoTempo {
+  eventos: string[];
+  ano_inicio?: string;
+  ano_fim?: string;
+  titulo?: string;
+}
+
+export interface Citacao {
+  texto: string;
+  autor: string;
+  contexto?: string;
+}
+
+export interface GraficoComparativo {
+  itens: string[];
+  valores: string[];
+  titulo: string;
+  unidade?: string;
+}
+
+export type ElementoGrafico = ComparacaoNumerica | LinhaDoTempo | Citacao | GraficoComparativo;
 
 // Tipo para os dados do roteiro serializado do Python
 export interface RoteiroData {
@@ -26,6 +58,8 @@ export interface Cena {
   midia: Midia;
   efeitos_visuais: EfeitosVisuais;
   overlays: Overlays;
+  estilo_visual?: "ken_burns" | "vox_motion";
+  elemento_grafico?: ElementoGrafico | null;
   audio_path: string | null;
   palavras_transcritas: Palavra[] | null;
   wer_final: number | null;
@@ -99,6 +133,7 @@ function calcularDuracaoTotalFrames(roteiro: RoteiroData): number {
 export const RemotionRoot: React.FC = () => {
   return (
     <>
+      {/* Composição para vídeos longos (16:9) */}
       <Composition
         id="VideoPrincipal"
         component={VideoComposition as unknown as React.FC<Record<string, unknown>>}
@@ -106,6 +141,22 @@ export const RemotionRoot: React.FC = () => {
         fps={FPS}
         width={1920}
         height={1080}
+        defaultProps={roteiroPadrao}
+        calculateMetadata={({ props }) => {
+          return {
+            durationInFrames: calcularDuracaoTotalFrames(props as unknown as RoteiroData),
+          };
+        }}
+      />
+
+      {/* Composição para Shorts (9:16) - Subfase 8.5 */}
+      <Composition
+        id="VideoShort"
+        component={VideoCompositionShort as unknown as React.FC<Record<string, unknown>>}
+        durationInFrames={150} // Fallback: ~5s para Studio; sobrescrito por calculateMetadata
+        fps={FPS}
+        width={1080}
+        height={1920}
         defaultProps={roteiroPadrao}
         calculateMetadata={({ props }) => {
           return {

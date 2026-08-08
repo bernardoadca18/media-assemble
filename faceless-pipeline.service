@@ -1,0 +1,36 @@
+[Unit]
+Description=Faceless Pipeline - Gerador de vídeos automatizado
+Documentation=https://github.com/seu-usuario/faceless-pipeline
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=faceless
+Group=faceless
+WorkingDirectory=/opt/faceless-pipeline
+Environment="PATH=/opt/faceless-pipeline/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/opt/faceless-pipeline/.env
+
+# Comando principal (scheduler)
+ExecStart=/opt/faceless-pipeline/.venv/bin/python main.py
+
+# Restart automático em caso de falha
+Restart=on-failure
+RestartSec=30
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=faceless-pipeline
+
+# Resource limits
+MemoryMax=4G
+CPUQuota=200%
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

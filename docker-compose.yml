@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: faceless_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-faceless}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faceless_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-faceless_pipeline}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-faceless} -d ${POSTGRES_DB:-faceless_pipeline}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faceless_pipeline
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-faceless}:${POSTGRES_PASSWORD:-faceless_secret}@postgres:5432/${POSTGRES_DB:-faceless_pipeline}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      LOCAL_MODEL_NAME: ${LOCAL_MODEL_NAME:-ollama/qwen2.5:7b}
+      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-http://ollama:11434}
+      CLOUD_MODEL_IDEACAO: ${CLOUD_MODEL_IDEACAO:-openai/gemini-3.6-flash}
+      CLOUD_MODEL_ROTEIRO: ${CLOUD_MODEL_ROTEIRO:-openai/gemini-3.1-pro}
+      NICHOS_ATIVOS: ${NICHOS_ATIVOS:-cultura_pop}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-medium}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./remotion/videos:/app/remotion/videos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Descomente para GPU (requer nvidia-docker)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Opcional: Ollama para modelos locais
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: faceless_ollama
+  #   ports:
+  #     - "${OLLAMA_PORT:-11434}:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
+  #   # GPU support
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  # ollama_data:

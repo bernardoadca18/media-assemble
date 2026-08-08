@@ -26,11 +26,17 @@ httpx>=0.27
 beautifulsoup4>=4.12
 yt-dlp>=2024.4.9
 pytrends>=4.9
+feedparser>=6.0  # RSS parsing para Reddit (Subfase 8.3)
+google-api-python-client>=2.100  # YouTube Data API v3 (Subfase 8.3)
 
 # --- Utilitários ---
 structlog>=24.1
 python-dotenv>=1.0
 tenacity>=8.2
+
+# --- API HTTP ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
 
 # --- Testes ---
 pytest>=8.0

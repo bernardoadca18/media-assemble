@@ -34,10 +34,9 @@ logger = logging.getLogger("services.scripting.writer_agent")
 
 T = TypeVar("T")
 
-# System prompt de roteirização editorial
-PROMPT_SISTEMA_ROTEIRO = """\
-Contexto: Você é um Roteirista Senior de vídeos "faceless" para YouTube,
-especialista em cultura pop, lore de animes, filmes, séries e jogos.
+# System prompt de roteirização editorial (base para todos os nichos)
+PROMPT_SISTEMA_ROTEIRO_BASE = """\
+Contexto: Você é um Roteirista Senior de vídeos "faceless" para YouTube.
 
 DADOS DE ENTRADA:
 - Tópico: {topico}
@@ -63,35 +62,54 @@ DIRETRIZES EDITORIAIS OBRIGATÓRIAS:
    - Texto de locução: frases curtas, linguagem coloquial mas informativa.
    - Não repetir a mesma animação mais de 2 vezes seguidas.
 
-3. ANIMAÇÕES DISPONÍVEIS (varie entre elas):
+3. ESTILOS VISUAIS (Subfase 8.4):
+   Cada cena deve escolher entre dois estilos visuais:
+
+   a) "ken_burns" (padrão): Para cenas narrativas, atmosféricas, descrições.
+      - Use quando o foco for storytelling, ambientação ou contexto visual.
+      - Preencha animacao_imagem com: ken_burns_zoom_in, ken_burns_zoom_out, pan_lateral.
+      - elemento_grafico deve ser null.
+
+   b) "vox_motion": Para dados, comparações, estatísticas, linhas do tempo.
+      - Use para apresentar números, comparações visuais, eventos sequenciais.
+      - Preencha elemento_grafico com UM dos tipos abaixo:
+        * ComparacaoNumerica: {{"valor_principal": "150M", "rotulo_principal": "views", "unidade": ""}}
+        * LinhaDoTempo: {{"eventos": ["Evento 1", "Evento 2"], "titulo": "Timeline", "ano_inicio": "2020"}}
+        * Citacao: {{"texto": "Citação famosa", "autor": "Autor Nome", "contexto": "Contexto opcional"}}
+        * GraficoComparativo: {{"itens": ["Item A", "Item B"], "valores": ["100", "200"], "titulo": "Comparação"}}
+      - animacao_imagem pode ser qualquer valor (será ignorado na renderização).
+
+4. ANIMAÇÕES DISPONÍVEIS (para estilo_visual = "ken_burns"):
    - ken_burns_zoom_in: zoom lento para dentro (dramático, revelação)
    - ken_burns_zoom_out: zoom lento para fora (contexto, panorama)
    - pan_lateral: movimento lateral (transição, comparação)
 
-4. TIPOS DE ASSET:
+5. TIPOS DE ASSET:
    - imagem: para ilustrações, conceitos, personagens estáticos
    - video: para clipes, trechos animados, cenas em movimento
    - Prefira "imagem" para maior controle visual; use "video" com moderação.
 
-5. TEXTOS EM TELA (texto_destaque_tela):
+6. TEXTOS EM TELA (texto_destaque_tela):
    - Use COM MODERAÇÃO: no máximo 1 a cada 3 cenas.
    - Apenas para ênfase em nomes, conceitos-chave ou revelações impactantes.
    - Não repita o que está sendo dito na locução — complemente ou destaque.
 
-6. KEYWORDS DE BUSCA:
+7. KEYWORDS DE BUSCA:
    - Seja específico: "Naruto Uzumaki modo sábio" é melhor que "Naruto".
    - Inclua termos em português e inglês quando relevante.
    - Forneça fallback_query genérico caso a busca específica falhe.
 
-7. TRILHA DE FUNDO:
+8. TRILHA DE FUNDO:
    - Escolha entre: "epica", "suspense", "medieval", "emocionante", "acao".
    - Volume padrão: 0.15 (não alterar).
+
+{prompt_adicional}
 
 FORMATO DE SAÍDA ESTRITO (APENAS JSON VÁLIDO, SEM MARKDOWN):
 {{
   "metadata": {{
     "video_id": "string único (UUID)",
-    "nicho": "cultura_pop",
+    "nicho": "{nicho}",
     "titulo_sugerido": "string",
     "duracao_estimada_segundos": float,
     "trilha_fundo": "string",
@@ -103,6 +121,8 @@ FORMATO DE SAÍDA ESTRITO (APENAS JSON VÁLIDO, SEM MARKDOWN):
       "ordem": int (sequencial, iniciando em 1),
       "texto_locucao": "string (texto falado nesta cena)",
       "duracao_estimada_segundos": float (entre 3.0 e 8.0),
+      "estilo_visual": "ken_burns" ou "vox_motion",
+      "elemento_grafico": null ou objeto do tipo correspondente (ver item 3),
       "midia": {{
         "tipo_asset_preferencial": "imagem" ou "video",
         "keywords_busca": ["keyword1", "keyword2"],
@@ -125,8 +145,9 @@ FORMATO DE SAÍDA ESTRITO (APENAS JSON VÁLIDO, SEM MARKDOWN):
 VALIDAÇÕES OBRIGATÓRIAS:
 - total de cenas: entre 15 e 40 (para duração de ~3 minutos)
 - duração de cada cena: entre 3.0 e 8.0 segundos
-- não repetir animacao_imagem mais que 2x consecutivas
+- não repetir animacao_imagem mais que 2x consecutivas (para cenas ken_burns)
 - texto_destaque_tela: máximo em 1/3 das cenas
+- elemento_grafico: obrigatório quando estilo_visual = "vox_motion", null quando "ken_burns"
 """
 
 # Prompt de correção para retry
@@ -207,12 +228,20 @@ async def _tentar_gerar_roteiro(
     prompt: str,
     tentativa: int,
     max_tentativas: int,
+    nicho: str | None = None,
+    video_id: str | None = None,
 ) -> Roteiro:
     """
     Tenta gerar e validar um roteiro.
     Levanta exceção se esgotar tentativas.
     """
-    resposta_bruta = await complete_cloud(prompt, model=settings.cloud_model_roteiro)
+    resposta_bruta = await complete_cloud(
+        prompt,
+        model=settings.cloud_model_roteiro,
+        operacao="roteirizacao",
+        nicho=nicho,
+        video_id=video_id,
+    )
     texto_limpo = _limpar_resposta_json(resposta_bruta)
 
     try:
@@ -282,19 +311,26 @@ async def gerar_roteiro(
     Raises:
         RuntimeError: Se esgotar todas as tentativas sem sucesso
     """
+    from pipeline.nichos import obter_config_nicho
+
+    # Obter configuração do nicho
+    config = obter_config_nicho(nicho)
+
     # Gerar video_id único
     video_id = str(uuid.uuid4())[:8]
 
-    # Montar prompt inicial
-    prompt_inicial = PROMPT_SISTEMA_ROTEIRO.format(
+    # Montar prompt com configuração do nicho
+    prompt_inicial = PROMPT_SISTEMA_ROTEIRO_BASE.format(
         topico=ideia.topico,
         titulo=ideia.titulo_sugerido,
         descricao=ideia.descricao_breve,
         duracao_alvo=int(duracao_alvo_segundos),
+        prompt_adicional=config.prompt_roteiro_adicional,
+        nicho=nicho,
     )
 
-    # Adicionar video_id e nicho ao prompt
-    prompt_inicial += f'\n\nGere o video_id como: "{video_id}"\nUse nicho: "{nicho}"'
+    # Adicionar video_id ao prompt
+    prompt_inicial += f'\n\nGere o video_id como: "{video_id}"'
 
     ultimo_erro = None
 
@@ -308,7 +344,7 @@ async def gerar_roteiro(
                     erro_validacao=str(ultimo_erro)
                 ) + "\n\n" + prompt_inicial
 
-            roteiro = await _tentar_gerar_roteiro(prompt, tentativa, max_tentativas)
+            roteiro = await _tentar_gerar_roteiro(prompt, tentativa, max_tentativas, nicho=nicho, video_id=video_id)
 
             # Garantir que video_id e nicho estão corretos
             roteiro.metadata.video_id = video_id
