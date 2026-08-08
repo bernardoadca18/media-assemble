@@ -250,3 +250,95 @@ docker-compose run --rm pipeline python main.py --run-once
 - Use GPU: configure `WHISPER_DEVICE=cuda`
 - Reduza tamanho do modelo: `WHISPER_MODEL_SIZE=small` ou `base`
 - Use float16: `WHISPER_COMPUTE_TYPE=float16`
+
+---
+
+## Revisão Visual de Shorts com Gameplay (Fase 9.4)
+
+### Visão geral
+
+Quando o modo `gameplay_bg` é usado para Shorts/TikTok, vídeos de gameplay horizontais (16:9) são cropados verticalmente para o formato 9:16. O processo de revisão visual garante que o enquadramento está correto e que elementos importantes (HUD, ação) estão visíveis.
+
+### Configuração de crop por jogo
+
+Cada jogo pode ter um offset Y específico para ajustar o enquadramento:
+
+| Jogo | Offset Y | Descrição |
+|------|----------|-----------|
+| Minecraft | 0 | Centrado |
+| Fortnite | -50 | Acima (evitar HUD baixa) |
+| Valorant | 100 | Abaixo (minimap no topo) |
+| League of Legends | 150 | Mais abaixo (evitar minimap) |
+| GTA V | -80 | Acima (minimap canto inferior) |
+| Call of Duty | 0 | Centrado |
+| Apex Legends | 50 | Abaixo (evitar HUD superior) |
+| Dota 2 | 150 | Mais abaixo (minimap inferior) |
+| CS:GO | 0 | Centrado |
+| Free Fire | -30 | Acima (controles mobile) |
+
+Para adicionar um novo jogo, edite `services/gameplay/crop_config.py`:
+
+```python
+CROP_CONFIG_POR_JOGO["novo_jogo"] = CropConfigJogo(
+    jogo="novo_jogo",
+    crop_offset_y=50,  # Ajuste baseado na HUD
+    descricao="Descrição do enquadramento",
+)
+```
+
+### Processo de revisão visual
+
+1. **Gere um vídeo de teste**
+   ```bash
+   # Com o pipeline rodando, aguarde gerar um vídeo com gameplay_bg
+   # Ou execute manualmente:
+   python main.py --run-once --nicho cultura_pop
+   ```
+
+2. **Verifique o vídeo gerado**
+   - Abra o vídeo em `data/output_final/`
+   - Confira se a ação principal está visível
+   - Verifique se a HUD não cobre conteúdo importante
+   - Valide se o crop vertical está bem posicionado
+
+3. **Ajuste o offset se necessário**
+   - Se a HUD está cortando ação, ajuste `crop_offset_y` em `crop_config.py`
+   - Valores negativos movem o crop para cima
+   - Valores positivos movem o crop para baixo
+
+4. **Teste novamente**
+   ```bash
+   # Regenere o vídeo com nova configuração
+   python main.py --run-once
+   ```
+
+### Checklist de revisão
+
+- [ ] HUD do jogo não cobre legenda
+- [ ] Ação principal está visível no centro
+- [ ] Personagens/objetos importantes não estão cortados
+- [ ] Minimap não está em área importante (se aplicável)
+- [ ] Transições entre cenas gameplay estão suaves
+- [ ] Crossfade entre segmentos está correto
+
+### Ajuste fino por canal
+
+Se um canal específico precisa de ajuste diferente:
+
+1. Edite `pipeline/nichos.py` para adicionar configuração específica
+2. O campo `crop_offset_y` em `Cena` pode ser setado manualmente
+3. Use `obter_crop_offset_y(jogo, default=valor)` para override
+
+### Troubleshooting comum
+
+**HUD cobrindo legenda:**
+- Ajuste `crop_offset_y` para mover a área de interesse
+- Verifique se `SubtitlesOverlay` está posicionado corretamente
+
+**Ação cortada:**
+- O offset pode precisar ser mais negativo (mover crop para cima)
+- Verifique se o segmento de gameplay tem movimento suficiente
+
+**Vídeo muito estático:**
+- Verifique `gameplay_min_motion_score` nas configurações
+- Segmentos com pouco movimento podem ser rejeitados automaticamente

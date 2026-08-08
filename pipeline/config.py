@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     timbre_velocidade_min: float = 0.95
     timbre_velocidade_max: float = 1.05
 
+    # --- Gameplay crop config (Fase 9.4) ---
+    # Default crop offset Y for gameplay videos in Shorts (0 = centered)
+    gameplay_crop_offset_y_default: int = 0
+
     @property
     def nichos_lista(self) -> list[str]:
         return [n.strip() for n in self.nichos_ativos.split(",") if n.strip()]

@@ -58,8 +58,9 @@ export interface Cena {
   midia: Midia;
   efeitos_visuais: EfeitosVisuais;
   overlays: Overlays;
-  estilo_visual?: "ken_burns" | "vox_motion";
+  estilo_visual?: "ken_burns" | "vox_motion" | "gameplay_bg";
   elemento_grafico?: ElementoGrafico | null;
+  crop_offset_y?: number; // Fase 9.4 — Offset Y para gameplay_bg em Shorts
   audio_path: string | null;
   palavras_transcritas: Palavra[] | null;
   wer_final: number | null;

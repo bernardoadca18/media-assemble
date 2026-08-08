@@ -136,6 +136,9 @@ class Cena(BaseModel):
     estilo_visual: Literal["ken_burns", "vox_motion", "gameplay_bg"] = "ken_burns"
     elemento_grafico: ElementoGrafico | None = None
 
+    # Fase 9.4 — Recorte vertical para gameplay_bg em Shorts
+    crop_offset_y: int = 0  # Offset Y em pixels para ajustar enquadramento
+
     # Preenchidos automaticamente pela Fase 3 (áudio)
     audio_path: str | None = None
     palavras_transcritas: list[Palavra] | None = None
