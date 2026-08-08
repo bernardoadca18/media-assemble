@@ -221,6 +221,91 @@ async def _descartar_ideia(ideia_id: int):
         print(f"\n❌ Ideia não encontrada.")
 
 
+async def _ingerir_gameplay(jogo: str, arquivo: str | None, diretorio: str | None):
+    """Ingere gameplay bruta e transforma em segmentos indexados."""
+    from pathlib import Path
+    from services.gameplay.ingestion import ingerir_arquivo_gameplay, ingerir_diretorio_gameplay
+    from pipeline.config import settings
+
+    output_dir = Path(settings.gameplay_processed_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if arquivo:
+        arquivo_path = Path(arquivo)
+        print(f"\nIngerindo arquivo de gameplay: {arquivo}")
+        print(f"Jogo: {jogo}")
+        print(f"Diretório de saída: {output_dir}")
+        print(f"\nProcessando...")
+
+        try:
+            ids = await ingerir_arquivo_gameplay(
+                arquivo_path=arquivo_path,
+                jogo=jogo,
+                output_dir=output_dir,
+            )
+            print(f"\n✅ Ingestão concluída!")
+            print(f"   {len(ids)} segmento(s) aprovado(s) e indexado(s).")
+            if ids:
+                print(f"   IDs: {', '.join(ids[:10])}")
+                if len(ids) > 10:
+                    print(f"   ... e mais {len(ids) - 10} segmentos.")
+        except FileNotFoundError as e:
+            print(f"\n❌ Erro: {e}")
+        except Exception as e:
+            print(f"\n❌ Erro durante ingestão: {e}")
+
+    elif diretorio:
+        diretorio_path = Path(diretorio)
+        print(f"\nIngerindo diretório de gameplay: {diretorio}")
+        print(f"Jogo: {jogo}")
+        print(f"Diretório de saída: {output_dir}")
+        print(f"\nProcessando...")
+
+        try:
+            ids = await ingerir_diretorio_gameplay(
+                diretorio=diretorio_path,
+                jogo=jogo,
+                output_dir=output_dir,
+            )
+            print(f"\n✅ Ingestão concluída!")
+            print(f"   {len(ids)} segmento(s) aprovado(s) e indexado(s).")
+            if ids:
+                print(f"   IDs: {', '.join(ids[:10])}")
+                if len(ids) > 10:
+                    print(f"   ... e mais {len(ids) - 10} segmentos.")
+        except FileNotFoundError as e:
+            print(f"\n❌ Erro: {e}")
+        except Exception as e:
+            print(f"\n❌ Erro durante ingestão: {e}")
+
+    else:
+        print("Erro: Especifique --arquivo ou --diretorio para ingestão de gameplay.")
+
+
+async def _listar_gameplay(jogo: str | None, intensidade: str | None, limite: int):
+    """Lista segmentos de gameplay indexados."""
+    from db.models import buscar_gameplay_segmentos
+
+    print(f"\nBuscando segmentos de gameplay...")
+    segmentos = await buscar_gameplay_segmentos(
+        jogo=jogo,
+        intensidade=intensidade,
+        limite=limite,
+    )
+
+    if not segmentos:
+        print("Nenhum segmento encontrado.")
+        return
+
+    print(f"\n{len(segmentos)} segmento(s) encontrado(s):\n")
+    print(f"{'ID':<6} {'JOGO':<20} {'INTENSIDADE':<12} {'SCORE':<8} {'DURAÇÃO':<8} {'USADO'}")
+    print("-" * 80)
+
+    for seg in segmentos:
+        usado = "Sim" if seg.get("usado_em") else "Não"
+        print(f"{seg['id']:<6} {seg['jogo_origem'][:20]:<20} {seg['faixa_intensidade']:<12} {seg['score_movimento']:<8.1f} {seg['duracao_segundos']:<8.1f}s {usado}")
+
+
 def main():
     configurar_logging()
 
@@ -242,6 +327,14 @@ def main():
     parser.add_argument("--prioridade", type=str, choices=["alta", "normal"], default="normal", help="Prioridade da ideia (usado com --sugerir-ideia).")
     parser.add_argument("--listar-ideias-manuais", action="store_true", help="Lista ideias manuais cadastradas.")
     parser.add_argument("--descartar-ideia", type=int, metavar="ID", help="Descarta uma ideia manual pelo ID.")
+    # Fase 9.1 — Pipeline de ingestão de gameplay
+    parser.add_argument("--ingerir-gameplay", action="store_true", help="Ingere gameplay bruta (use com --jogo, e --arquivo ou --diretorio).")
+    parser.add_argument("--jogo", type=str, help="Nome do jogo para ingestão de gameplay.")
+    parser.add_argument("--arquivo", type=str, help="Arquivo de gameplay bruta para ingerir.")
+    parser.add_argument("--diretorio", type=str, help="Diretório com arquivos de gameplay para ingerir.")
+    parser.add_argument("--listar-gameplay", action="store_true", help="Lista segmentos de gameplay indexados.")
+    parser.add_argument("--intensidade", type=str, choices=["calmo", "moderado", "intenso"], help="Filtra por intensidade (usado com --listar-gameplay).")
+    parser.add_argument("--limite", type=int, default=20, help="Limite de resultados (usado com --listar-gameplay).")
     args = parser.parse_args()
 
     if args.run_once:
@@ -291,6 +384,26 @@ def main():
 
     if args.descartar_ideia:
         asyncio.run(_descartar_ideia(args.descartar_ideia))
+        return
+
+    # Fase 9.1 — Ingestão de gameplay
+    if args.ingerir_gameplay:
+        if not args.jogo:
+            print("Erro: --jogo é obrigatório para ingestão de gameplay.")
+            return
+        asyncio.run(_ingerir_gameplay(
+            jogo=args.jogo,
+            arquivo=args.arquivo,
+            diretorio=args.diretorio,
+        ))
+        return
+
+    if args.listar_gameplay:
+        asyncio.run(_listar_gameplay(
+            jogo=args.jogo,
+            intensidade=args.intensidade,
+            limite=args.limite,
+        ))
         return
 
     # Modo scheduler (padrão)

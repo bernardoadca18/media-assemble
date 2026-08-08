@@ -54,6 +54,7 @@ class EstiloVisual(str, Enum):
     """Estilos visuais disponíveis para renderização de cenas."""
     ken_burns = "ken_burns"
     vox_motion = "vox_motion"
+    gameplay_bg = "gameplay_bg"
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +132,8 @@ class Cena(BaseModel):
     overlays: Overlays
 
     # Subfase 8.4 — Estilo visual Vox
-    estilo_visual: Literal["ken_burns", "vox_motion"] = "ken_burns"
+    # Fase 9.2 — Estilo visual gameplay_bg
+    estilo_visual: Literal["ken_burns", "vox_motion", "gameplay_bg"] = "ken_burns"
     elemento_grafico: ElementoGrafico | None = None
 
     # Preenchidos automaticamente pela Fase 3 (áudio)

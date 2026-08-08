@@ -266,9 +266,9 @@ async def coletar_tendencias(nicho: str) -> list[str]:
     Retorna uma lista de tópicos/tendências brutos (texto livre) relevantes
     para o nicho informado.
 
-    Combina múltiplas fontes (Google Trends, Reddit, YouTube trending) e
-    retorna uma lista consolidada. Fontes não implementadas retornam lista
-    vazia e não quebram o pipeline.
+    Combina múltiplas fontes (Google Trends, Reddit, YouTube trending, RSS de nicho,
+    Google Custom Search) e retorna uma lista consolidada. Fontes não implementadas
+    ou com falha retornam lista vazia e não quebram o pipeline.
 
     Args:
         nicho: Nicho do canal (cultura_pop, tecnologia, futebol)
@@ -279,14 +279,20 @@ async def coletar_tendencias(nicho: str) -> list[str]:
     logger.info("coletar_tendencias.iniciando", extra={"nicho": nicho})
 
     # Coleta de todas as fontes em paralelo
+    from services.trends.rss_sources import coletar_rss_nicho, coletar_custom_search
+
     google_trends_task = _coletar_google_trends(nicho)
     reddit_task = _coletar_reddit_rss(nicho)
     youtube_task = _coletar_youtube_trending(nicho)
+    rss_nicho_task = coletar_rss_nicho(nicho)
+    custom_search_task = coletar_custom_search(nicho)
 
     resultados = await asyncio.gather(
         google_trends_task,
         reddit_task,
         youtube_task,
+        rss_nicho_task,
+        custom_search_task,
         return_exceptions=True,
     )
 

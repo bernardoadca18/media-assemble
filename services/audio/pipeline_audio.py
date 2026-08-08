@@ -14,6 +14,7 @@ from pipeline.schemas import Cena, Roteiro
 from services.audio.mixer import concatenar_audios
 from services.audio.tts_engine import gerar_audio_cena
 from services.audio.validator import validar_audio
+from services.audio.timbre_variation import aplicar_variacao_timbre, obter_perfil_voz_canal
 
 logger = logging.getLogger("services.audio.pipeline_audio")
 
@@ -34,6 +35,8 @@ async def gerar_e_validar_cena(
     cena: Cena,
     dir_temp: Path,
     max_tentativas: int | None = None,
+    canal_id: str | None = None,
+    config_nicho: "ConfigNicho | None" = None,
 ) -> tuple[Path, float, list]:
     """
     Gera e valida áudio para uma única cena com retry por seed.
@@ -49,10 +52,14 @@ async def gerar_e_validar_cena(
     tentativas sem aprovar, aceita a melhor tentativa observada (menor WER)
     e marca `revisao_manual_necessaria = True`.
 
+    Fase 9.3: Aplica variação de timbre por canal ANTES da validação WER.
+
     Args:
         cena: Cena com texto_locucao preenchido.
         dir_temp: Diretório temporário para os áudios.
         max_tentativas: Máximo de tentativas. Usa settings.max_tentativas_tts se None.
+        canal_id: ID do canal para variação de timbre (Fase 9.3).
+        config_nicho: Configuração do nicho com overrides de timbre (Fase 9.3).
 
     Returns:
         Tupla (caminho_audio, wer, palavras_transcritas) referente à
@@ -84,27 +91,41 @@ async def gerar_e_validar_cena(
                 seed=seed,
             )
 
+            # Fase 9.3 — Aplicar variação de timbre ANTES da validação WER
+            audio_para_validar = caminho_tentativa
+            if canal_id:
+                pitch_shift, velocidade = obter_perfil_voz_canal(canal_id, config_nicho)
+                audio_para_validar = await aplicar_variacao_timbre(
+                    audio_path=caminho_tentativa,
+                    canal_id=canal_id,
+                    pitch_shift=pitch_shift,
+                    velocidade=velocidade,
+                )
+                # Atualizar caminho se variação foi aplicada a arquivo novo
+                if audio_para_validar != caminho_tentativa:
+                    tentativas_paths.append(audio_para_validar)
+
             wer, palavras = await validar_audio(
-                caminho_audio=caminho_tentativa,
+                caminho_audio=audio_para_validar,
                 texto_esperado=cena.texto_locucao,
             )
 
             if wer < melhor_wer:
                 melhor_wer = wer
                 melhor_palavras = palavras
-                melhor_audio_path = caminho_tentativa
+                melhor_audio_path = audio_para_validar
 
             if wer <= settings.wer_limite_aprovacao:
                 logger.info(
                     "pipeline_audio.cena_aprovada",
                     extra={"cena_id": cena.cena_id, "tentativa": tentativa, "wer": wer},
                 )
-                cena.audio_path = str(caminho_tentativa)
+                cena.audio_path = str(audio_para_validar)
                 cena.palavras_transcritas = palavras
                 cena.wer_final = wer
                 cena.revisao_manual_necessaria = False
-                _limpar_tentativas_descartadas(tentativas_paths, manter=caminho_tentativa)
-                return caminho_tentativa, wer, palavras
+                _limpar_tentativas_descartadas(tentativas_paths, manter=audio_para_validar)
+                return audio_para_validar, wer, palavras
 
             logger.warning(
                 "pipeline_audio.wer_alto",

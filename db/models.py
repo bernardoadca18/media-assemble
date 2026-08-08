@@ -10,11 +10,15 @@ rastreabilidade ao pipeline Python (fases 2 em diante) — não existiam no
 fluxo n8n original.
 """
 import datetime as dt
+import logging
 
 from sqlalchemy import String, Text, DateTime, Float, Boolean, func
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from db.session import AsyncSessionLocal
+
+logger = logging.getLogger("db.models")
 
 
 class Base(DeclarativeBase):
@@ -602,3 +606,169 @@ async def buscar_ideia_manual_por_id(ideia_id: int) -> dict | None:
             "video_id": ideia.video_id,
             "criado_em": ideia.criado_em.isoformat() if ideia.criado_em else None,
         }
+
+class GameplaySegmento(Base):
+    """
+    Segmentos de gameplay processados e aprovados.
+
+    Cada registro representa um segmento de vídeo curto (30s padrão)
+    extraído de gravações brutas de sessões de jogo, com movimento
+    validado (exclui menus, telas paradas, carregamentos).
+    """
+    __tablename__ = "gameplay_segmentos"
+    __table_args__ = {"schema": "dados"}
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    jogo_origem: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    caminho_arquivo: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    duracao_segundos: Mapped[float] = mapped_column(Float, nullable=False)
+    score_movimento: Mapped[float] = mapped_column(Float, nullable=False)
+    faixa_intensidade: Mapped[str] = mapped_column(String, nullable=False)  # calmo, moderado, intenso
+    hash_conteudo: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)  # MD5
+    usado_em: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)  # video_ids
+    criado_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+async def salvar_gameplay_segmentos(segmentos: list[dict]) -> list[str]:
+    """
+    Salva múltiplos segmentos de gameplay no banco.
+
+    Args:
+        segmentos: Lista de dicts com metadados dos segmentos
+
+    Returns:
+        Lista de IDs dos segmentos salvos
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        ids = []
+
+        for seg_data in segmentos:
+            # Verificar se hash já existe (dedup)
+            stmt = select(GameplaySegmento).where(
+                GameplaySegmento.hash_conteudo == seg_data["hash_conteudo"]
+            )
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                logger.info(
+                    "models.gameplay_duplicado",
+                    extra={"hash": seg_data["hash_conteudo"][:12]},
+                )
+                ids.append(str(existing.id))
+                continue
+
+            # Criar novo registro
+            segmento = GameplaySegmento(
+                jogo_origem=seg_data["jogo_origem"],
+                caminho_arquivo=seg_data["caminho_arquivo"],
+                duracao_segundos=seg_data["duracao_segundos"],
+                score_movimento=seg_data["score_movimento"],
+                faixa_intensidade=seg_data["faixa_intensidade"],
+                hash_conteudo=seg_data["hash_conteudo"],
+                usado_em=[],
+            )
+
+            session.add(segmento)
+            await session.flush()
+            ids.append(str(segmento.id))
+
+        await session.commit()
+
+        logger.info(
+            "models.gameplay_segmentos_salvos",
+            extra={"total": len(ids)},
+        )
+
+        return ids
+
+
+async def buscar_gameplay_segmentos(
+    jogo: str | None = None,
+    faixa_intensidade: str | None = None,
+    min_score: float | None = None,
+    limite: int = 100,
+) -> list[dict]:
+    """
+    Busca segmentos de gameplay com filtros opcionais.
+
+    Args:
+        jogo: Filtrar por jogo
+        faixa_intensidade: Filtrar por intensidade (calmo, moderado, intenso)
+        min_score: Score mínimo de movimento
+        limite: Máximo de resultados
+
+    Returns:
+        Lista de dicts com dados dos segmentos
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(GameplaySegmento).order_by(GameplaySegmento.score_movimento.desc())
+
+        if jogo:
+            stmt = stmt.where(GameplaySegmento.jogo_origem == jogo)
+        if faixa_intensidade:
+            stmt = stmt.where(GameplaySegmento.faixa_intensidade == faixa_intensidade)
+        if min_score is not None:
+            stmt = stmt.where(GameplaySegmento.score_movimento >= min_score)
+
+        stmt = stmt.limit(limite)
+
+        result = await session.execute(stmt)
+        segmentos = result.scalars().all()
+
+        return [
+            {
+                "id": seg.id,
+                "jogo_origem": seg.jogo_origem,
+                "caminho_arquivo": seg.caminho_arquivo,
+                "duracao_segundos": seg.duracao_segundos,
+                "score_movimento": seg.score_movimento,
+                "faixa_intensidade": seg.faixa_intensidade,
+                "usado_em": seg.usado_em or [],
+                "criado_em": seg.criado_em.isoformat() if seg.criado_em else None,
+            }
+            for seg in segmentos
+        ]
+
+
+async def marcar_gameplay_usado(
+    segmento_id: int,
+    video_id: str,
+    data_uso: str | None = None,
+) -> bool:
+    """
+    Marca um segmento como usado em um vídeo.
+
+    Args:
+        segmento_id: ID do segmento
+        video_id: ID do vídeo onde foi usado
+        data_uso: Data de uso (YYYY-MM-DD), opcional
+
+    Returns:
+        True se atualizado com sucesso
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(GameplaySegmento).where(GameplaySegmento.id == segmento_id)
+        result = await session.execute(stmt)
+        segmento = result.scalar_one_or_none()
+
+        if not segmento:
+            return False
+
+        if segmento.usado_em is None:
+            segmento.usado_em = []
+
+        # Formato: "video_id:YYYY-MM-DD"
+        marca = f"{video_id}:{data_uso}" if data_uso else video_id
+
+        if marca not in segmento.usado_em:
+            segmento.usado_em = segmento.usado_em + [marca]
+
+        await session.commit()
+        return True

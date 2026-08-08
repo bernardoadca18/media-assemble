@@ -186,7 +186,7 @@ def _buscar_no_banco_local(keywords: list[str]) -> AssetResolvido | None:
     return None
 
 
-async def resolver_asset_cena(cena: Cena) -> bool:
+async def resolver_asset_cena(cena: Cena, canal_id: str | None = None) -> bool:
     """
     Resolve asset para uma única cena.
 
@@ -195,10 +195,24 @@ async def resolver_asset_cena(cena: Cena) -> bool:
 
     Args:
         cena: Cena a ter seu asset resolvido
+        canal_id: ID do canal para gameplay_bg (opcional)
 
     Returns:
         True se asset foi resolvido (local ou fallback), False se não encontrou
     """
+    # Fase 9.2 — Verificar estilo visual gameplay_bg
+    if cena.estilo_visual == "gameplay_bg":
+        # Gameplay_bg é resolvido no nível do roteiro, não por cena
+        # Marcar para resolução posterior
+        logger.info(
+            "asset_resolver.gameplay_bg_cena",
+            extra={
+                "cena_id": cena.cena_id,
+                "message": "gameplay_bg é resolvido no nível do roteiro",
+            },
+        )
+        return True
+
     keywords = cena.midia.keywords_busca
     fallback_query = cena.midia.fallback_query
 

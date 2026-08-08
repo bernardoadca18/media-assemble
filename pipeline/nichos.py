@@ -18,6 +18,10 @@ class ConfigNicho(NamedTuple):
     prompt_roteiro_short: str  # Subfase 8.5 — Prompt para shorts nativos
     categoria_google_trends: int
     subreddits_sugeridos: list[str]
+    gameplay_intensidade_preferida: str = "moderado"  # Fase 9.2 — gameplay_bg
+    # Fase 9.3 — Variação de timbre por canal
+    pitch_shift_semitons: float | None = None  # -2.0 a +2.0, None = determinístico por canal_id
+    velocidade_fala: float | None = None  # 0.95 a 1.05, None = determinístico por canal_id
 
 
 # Configurações de cada nicho

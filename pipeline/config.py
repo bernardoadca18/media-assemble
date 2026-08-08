@@ -35,6 +35,22 @@ class Settings(BaseSettings):
     # --- Assets externos ---
     pexels_api_key: str | None = None
 
+    # --- Gameplay ingestion (Fase 9.1) ---
+    gameplay_raw_dir: str = "data/gameplay_raw"
+    gameplay_processed_dir: str = "data/gameplay_processed"
+    gameplay_segment_duration_sec: int = 30
+    gameplay_min_motion_score: float = 5.0
+
+    # --- Gameplay resolver (Fase 9.2) ---
+    gameplay_janela_reuso_dias: int = 30
+    gameplay_crossfade_duration_sec: float = 0.5
+
+    # --- Timbre variation (Fase 9.3) ---
+    timbre_pitch_shift_min: float = -2.0
+    timbre_pitch_shift_max: float = 2.0
+    timbre_velocidade_min: float = 0.95
+    timbre_velocidade_max: float = 1.05
+
     @property
     def nichos_lista(self) -> list[str]:
         return [n.strip() for n in self.nichos_ativos.split(",") if n.strip()]
