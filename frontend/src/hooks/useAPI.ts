@@ -107,6 +107,38 @@ export function useNicho(nome: string) {
   })
 }
 
+export function useCriarNicho() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: api.criarNicho,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['nichos'] })
+    },
+  })
+}
+
+export function useAtualizarNicho() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ nome, data }: { nome: string; data: import('../types/api').NichoUpdate }) =>
+      api.atualizarNicho(nome, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['nichos'] })
+      queryClient.invalidateQueries({ queryKey: ['nicho'] })
+    },
+  })
+}
+
+export function useDeletarNicho() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: api.deletarNicho,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['nichos'] })
+    },
+  })
+}
+
 // Metadata Publicação
 export function useMetadataPublicacao(videoId: string) {
   return useQuery({

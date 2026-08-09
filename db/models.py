@@ -72,6 +72,26 @@ class ExecucaoPipeline(Base):
     criado_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Nicho(Base):
+    """Configuração de nichos dinâmicos (CRUD via API)."""
+    __tablename__ = "nichos"
+    __table_args__ = {"schema": "dados"}
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    nome: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    prompt_ideacao: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_roteiro_adicional: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_roteiro_short: Mapped[str] = mapped_column(Text, nullable=False)
+    categoria_google_trends: Mapped[int] = mapped_column(nullable=False)
+    subreddits_sugeridos: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    gameplay_intensidade_preferida: Mapped[str] = mapped_column(String(20), nullable=False, default="moderado")
+    pitch_shift_semitons: Mapped[float | None] = mapped_column(Float, nullable=True)
+    velocidade_fala: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    criado_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class IdeiaManual(Base):
     """Ideias manuais injetadas pelo usuário (Subfase 8.8)."""
     __tablename__ = "ideias_manuais"
@@ -772,3 +792,200 @@ async def marcar_gameplay_usado(
 
         await session.commit()
         return True
+
+
+# ---------------------------------------------------------------------------
+# Operações de Nichos (CRUD dinâmico)
+# ---------------------------------------------------------------------------
+
+async def salvar_nicho(
+    nome: str,
+    prompt_ideacao: str,
+    prompt_roteiro_adicional: str,
+    prompt_roteiro_short: str,
+    categoria_google_trends: int,
+    subreddits_sugeridos: list[str],
+    gameplay_intensidade_preferida: str = "moderado",
+    pitch_shift_semitons: float | None = None,
+    velocidade_fala: float | None = None,
+) -> str:
+    """
+    Salva um novo nicho no banco de dados.
+
+    Args:
+        nome: Nome único do nicho
+        prompt_ideacao: Prompt para geração de ideias
+        prompt_roteiro_adicional: Diretrizes adicionais para roteiro
+        prompt_roteiro_short: Diretrizes para shorts
+        categoria_google_trends: ID da categoria no Google Trends
+        subreddits_sugeridos: Lista de subreddits para buscar tendências
+        gameplay_intensidade_preferida: Intensidade preferida de gameplay
+        pitch_shift_semitons: Variação de tom para TTS
+        velocidade_fala: Velocidade de fala para TTS
+
+    Returns:
+        Nome do nicho criado
+    """
+    async with AsyncSessionLocal() as session:
+        registro = Nicho(
+            nome=nome,
+            prompt_ideacao=prompt_ideacao,
+            prompt_roteiro_adicional=prompt_roteiro_adicional,
+            prompt_roteiro_short=prompt_roteiro_short,
+            categoria_google_trends=categoria_google_trends,
+            subreddits_sugeridos=subreddits_sugeridos,
+            gameplay_intensidade_preferida=gameplay_intensidade_preferida,
+            pitch_shift_semitons=pitch_shift_semitons,
+            velocidade_fala=velocidade_fala,
+            ativo=True,
+        )
+        session.add(registro)
+        await session.commit()
+        return nome
+
+
+async def listar_nichos(apenas_ativos: bool = False) -> list[dict]:
+    """
+    Lista todos os nichos cadastrados.
+
+    Args:
+        apenas_ativos: Se True, retorna apenas nichos ativos
+
+    Returns:
+        Lista de dicts com dados dos nichos
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(Nicho)
+
+        if apenas_ativos:
+            stmt = stmt.where(Nicho.ativo == True)
+
+        stmt = stmt.order_by(Nicho.nome)
+        result = await session.execute(stmt)
+        nichos = result.scalars().all()
+
+        return [
+            {
+                "id": nicho.id,
+                "nome": nicho.nome,
+                "prompt_ideacao": nicho.prompt_ideacao,
+                "prompt_roteiro_adicional": nicho.prompt_roteiro_adicional,
+                "prompt_roteiro_short": nicho.prompt_roteiro_short,
+                "categoria_google_trends": nicho.categoria_google_trends,
+                "subreddits_sugeridos": nicho.subreddits_sugeridos,
+                "gameplay_intensidade_preferida": nicho.gameplay_intensidade_preferida,
+                "pitch_shift_semitons": nicho.pitch_shift_semitons,
+                "velocidade_fala": nicho.velocidade_fala,
+                "ativo": nicho.ativo,
+                "criado_em": nicho.criado_em.isoformat() if nicho.criado_em else None,
+                "atualizado_em": nicho.atualizado_em.isoformat() if nicho.atualizado_em else None,
+            }
+            for nicho in nichos
+        ]
+
+
+async def buscar_nicho_por_nome(nome: str) -> dict | None:
+    """
+    Busca um nicho pelo nome.
+
+    Args:
+        nome: Nome do nicho
+
+    Returns:
+        Dict com dados do nicho ou None
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(Nicho).where(Nicho.nome == nome)
+        result = await session.execute(stmt)
+        nicho = result.scalar_one_or_none()
+
+        if not nicho:
+            return None
+
+        return {
+            "id": nicho.id,
+            "nome": nicho.nome,
+            "prompt_ideacao": nicho.prompt_ideacao,
+            "prompt_roteiro_adicional": nicho.prompt_roteiro_adicional,
+            "prompt_roteiro_short": nicho.prompt_roteiro_short,
+            "categoria_google_trends": nicho.categoria_google_trends,
+            "subreddits_sugeridos": nicho.subreddits_sugeridos,
+            "gameplay_intensidade_preferida": nicho.gameplay_intensidade_preferida,
+            "pitch_shift_semitons": nicho.pitch_shift_semitons,
+            "velocidade_fala": nicho.velocidade_fala,
+            "ativo": nicho.ativo,
+            "criado_em": nicho.criado_em.isoformat() if nicho.criado_em else None,
+            "atualizado_em": nicho.atualizado_em.isoformat() if nicho.atualizado_em else None,
+        }
+
+
+async def atualizar_nicho(
+    nome: str,
+    prompt_ideacao: str | None = None,
+    prompt_roteiro_adicional: str | None = None,
+    prompt_roteiro_short: str | None = None,
+    categoria_google_trends: int | None = None,
+    subreddits_sugeridos: list[str] | None = None,
+    gameplay_intensidade_preferida: str | None = None,
+    pitch_shift_semitons: float | None = None,
+    velocidade_fala: float | None = None,
+    ativo: bool | None = None,
+) -> bool:
+    """
+    Atualiza um nicho existente.
+
+    Args:
+        nome: Nome do nicho a atualizar
+        Outros args: Campos a atualizar (None = manter atual)
+
+    Returns:
+        True se atualizou, False se não encontrou
+    """
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(Nicho).where(Nicho.nome == nome)
+        result = await session.execute(stmt)
+        nicho = result.scalar_one_or_none()
+
+        if not nicho:
+            return False
+
+        if prompt_ideacao is not None:
+            nicho.prompt_ideacao = prompt_ideacao
+        if prompt_roteiro_adicional is not None:
+            nicho.prompt_roteiro_adicional = prompt_roteiro_adicional
+        if prompt_roteiro_short is not None:
+            nicho.prompt_roteiro_short = prompt_roteiro_short
+        if categoria_google_trends is not None:
+            nicho.categoria_google_trends = categoria_google_trends
+        if subreddits_sugeridos is not None:
+            nicho.subreddits_sugeridos = subreddits_sugeridos
+        if gameplay_intensidade_preferida is not None:
+            nicho.gameplay_intensidade_preferida = gameplay_intensidade_preferida
+        if pitch_shift_semitons is not None:
+            nicho.pitch_shift_semitons = pitch_shift_semitons
+        if velocidade_fala is not None:
+            nicho.velocidade_fala = velocidade_fala
+        if ativo is not None:
+            nicho.ativo = ativo
+
+        await session.commit()
+        return True
+
+
+async def deletar_nicho(nome: str) -> bool:
+    """
+    Remove um nicho (soft delete - marca como inativo).
+
+    Args:
+        nome: Nome do nicho
+
+    Returns:
+        True se desativou, False se não encontrou
+    """
+    return await atualizar_nicho(nome, ativo=False)

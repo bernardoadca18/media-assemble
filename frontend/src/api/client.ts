@@ -70,6 +70,21 @@ export const listarNichos = () =>
 export const obterNicho = (nome: string) =>
   fetchAPI<import('../types/api').NichoConfig>(`/nichos/${nome}`)
 
+export const criarNicho = (data: import('../types/api').NichoCreate) =>
+  fetchAPI<import('../types/api').NichoConfig>('/nichos', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+export const atualizarNicho = (nome: string, data: import('../types/api').NichoUpdate) =>
+  fetchAPI<import('../types/api').NichoConfig>(`/nichos/${nome}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+
+export const deletarNicho = (nome: string) =>
+  fetchAPI<{ mensagem: string }>(`/nichos/${nome}`, { method: 'DELETE' })
+
 // Metadata Publicação
 export const obterMetadataPublicacao = (videoId: string) =>
   fetchAPI<import('../types/api').MetadataPublicacao>(`/execucoes/${videoId}/metadata`)

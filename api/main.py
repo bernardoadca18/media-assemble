@@ -364,6 +364,26 @@ async def listar_nichos():
     Returns:
         Lista de configurações de nicho
     """
+    from db.models import listar_nichos as db_listar_nichos
+
+    # Buscar do banco
+    nichos_db = await db_listar_nichos(apenas_ativos=False)
+
+    if nichos_db:
+        return [
+            NichoResposta(
+                nome=nicho["nome"],
+                categoria_google_trends=nicho["categoria_google_trends"],
+                subreddits_sugeridos=nicho["subreddits_sugeridos"],
+                gameplay_intensidade_preferida=nicho["gameplay_intensidade_preferida"],
+                prompt_roteiro_short_configurado=bool(nicho["prompt_roteiro_short"]),
+                timbre_pitch_shift=nicho["pitch_shift_semitons"],
+                timbre_velocidade=nicho["velocidade_fala"],
+            )
+            for nicho in nichos_db
+        ]
+
+    # Fallback para config hardcoded se banco vazio
     nichos = []
     for nome, config in NICHOS_CONFIG.items():
         nichos.append(
@@ -392,6 +412,23 @@ async def obter_nicho(nicho: str):
     Returns:
         Configuração do nicho
     """
+    from db.models import buscar_nicho_por_nome
+
+    # Buscar do banco
+    nicho_db = await buscar_nicho_por_nome(nicho)
+
+    if nicho_db:
+        return NichoResposta(
+            nome=nicho_db["nome"],
+            categoria_google_trends=nicho_db["categoria_google_trends"],
+            subreddits_sugeridos=nicho_db["subreddits_sugeridos"],
+            gameplay_intensidade_preferida=nicho_db["gameplay_intensidade_preferida"],
+            prompt_roteiro_short_configurado=bool(nicho_db["prompt_roteiro_short"]),
+            timbre_pitch_shift=nicho_db["pitch_shift_semitons"],
+            timbre_velocidade=nicho_db["velocidade_fala"],
+        )
+
+    # Fallback para config hardcoded
     from pipeline.nichos import obter_config_nicho
 
     try:
@@ -407,6 +444,147 @@ async def obter_nicho(nicho: str):
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+class NichoCreate(BaseModel):
+    """Schema para criar novo nicho."""
+    nome: str
+    prompt_ideacao: str
+    prompt_roteiro_adicional: str
+    prompt_roteiro_short: str
+    categoria_google_trends: int
+    subreddits_sugeridos: list[str]
+    gameplay_intensidade_preferida: str = "moderado"
+    timbre_pitch_shift: Optional[float] = None
+    timbre_velocidade: Optional[float] = None
+
+
+class NichoUpdate(BaseModel):
+    """Schema para atualizar nicho."""
+    prompt_ideacao: Optional[str] = None
+    prompt_roteiro_adicional: Optional[str] = None
+    prompt_roteiro_short: Optional[str] = None
+    categoria_google_trends: Optional[int] = None
+    subreddits_sugeridos: Optional[list[str]] = None
+    gameplay_intensidade_preferida: Optional[str] = None
+    timbre_pitch_shift: Optional[float] = None
+    timbre_velocidade: Optional[float] = None
+    ativo: Optional[bool] = None
+
+
+@app.post("/nichos", response_model=NichoResposta, status_code=201)
+async def criar_nicho(data: NichoCreate):
+    """
+    Cria um novo nicho.
+
+    Args:
+        data: Dados do novo nicho
+
+    Returns:
+        Nicho criado
+    """
+    from db.models import salvar_nicho, buscar_nicho_por_nome
+
+    # Verificar se já existe
+    existente = await buscar_nicho_por_nome(data.nome)
+    if existente:
+        raise HTTPException(status_code=400, detail=f"Nicho '{data.nome}' já existe")
+
+    # Criar
+    await salvar_nicho(
+        nome=data.nome,
+        prompt_ideacao=data.prompt_ideacao,
+        prompt_roteiro_adicional=data.prompt_roteiro_adicional,
+        prompt_roteiro_short=data.prompt_roteiro_short,
+        categoria_google_trends=data.categoria_google_trends,
+        subreddits_sugeridos=data.subreddits_sugeridos,
+        gameplay_intensidade_preferida=data.gameplay_intensidade_preferida,
+        pitch_shift_semitons=data.timbre_pitch_shift,
+        velocidade_fala=data.timbre_velocidade,
+    )
+
+    return NichoResposta(
+        nome=data.nome,
+        categoria_google_trends=data.categoria_google_trends,
+        subreddits_sugeridos=data.subreddits_sugeridos,
+        gameplay_intensidade_preferida=data.gameplay_intensidade_preferida,
+        prompt_roteiro_short_configurado=bool(data.prompt_roteiro_short),
+        timbre_pitch_shift=data.timbre_pitch_shift,
+        timbre_velocidade=data.timbre_velocidade,
+    )
+
+
+@app.put("/nichos/{nicho}", response_model=NichoResposta)
+async def atualizar_nicho_endpoint(nicho: str, data: NichoUpdate):
+    """
+    Atualiza um nicho existente.
+
+    Args:
+        nicho: Nome do nicho
+        data: Campos a atualizar
+
+    Returns:
+        Nicho atualizado
+    """
+    from db.models import atualizar_nicho, buscar_nicho_por_nome
+
+    # Verificar se existe
+    existente = await buscar_nicho_por_nome(nicho)
+    if not existente:
+        raise HTTPException(status_code=404, detail=f"Nicho '{nicho}' não encontrado")
+
+    # Atualizar
+    await atualizar_nicho(
+        nome=nicho,
+        prompt_ideacao=data.prompt_ideacao,
+        prompt_roteiro_adicional=data.prompt_roteiro_adicional,
+        prompt_roteiro_short=data.prompt_roteiro_short,
+        categoria_google_trends=data.categoria_google_trends,
+        subreddits_sugeridos=data.subreddits_sugeridos,
+        gameplay_intensidade_preferida=data.gameplay_intensidade_preferida,
+        pitch_shift_semitons=data.timbre_pitch_shift,
+        velocidade_fala=data.timbre_velocidade,
+        ativo=data.ativo,
+    )
+
+    # Retornar atualizado
+    atualizado = await buscar_nicho_por_nome(nicho)
+    return NichoResposta(
+        nome=atualizado["nome"],
+        categoria_google_trends=atualizado["categoria_google_trends"],
+        subreddits_sugeridos=atualizado["subreddits_sugeridos"],
+        gameplay_intensidade_preferida=atualizado["gameplay_intensidade_preferida"],
+        prompt_roteiro_short_configurado=bool(atualizado["prompt_roteiro_short"]),
+        timbre_pitch_shift=atualizado["pitch_shift_semitons"],
+        timbre_velocidade=atualizado["velocidade_fala"],
+    )
+
+
+@app.delete("/nichos/{nicho}")
+async def deletar_nicho_endpoint(nicho: str):
+    """
+    Remove um nicho (soft delete - marca como inativo).
+
+    Args:
+        nicho: Nome do nicho
+
+    Returns:
+        Mensagem de confirmação
+    """
+    from db.models import deletar_nicho, buscar_nicho_por_nome
+
+    # Verificar se existe
+    existente = await buscar_nicho_por_nome(nicho)
+    if not existente:
+        raise HTTPException(status_code=404, detail=f"Nicho '{nicho}' não encontrado")
+
+    # Soft delete
+    sucesso = await deletar_nicho(nicho)
+
+    if sucesso:
+        return {"mensagem": f"Nicho '{nicho}' desativado com sucesso"}
+    else:
+        raise HTTPException(status_code=500, detail="Erro ao desativar nicho")
 
 
 # ---------------------------------------------------------------------------

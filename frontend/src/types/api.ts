@@ -88,6 +88,30 @@ export interface NichoConfig {
   timbre_velocidade: number | null
 }
 
+export interface NichoCreate {
+  nome: string
+  prompt_ideacao: string
+  prompt_roteiro_adicional: string
+  prompt_roteiro_short: string
+  categoria_google_trends: number
+  subreddits_sugeridos: string[]
+  gameplay_intensidade_preferida?: string
+  timbre_pitch_shift?: number | null
+  timbre_velocidade?: number | null
+}
+
+export interface NichoUpdate {
+  prompt_ideacao?: string
+  prompt_roteiro_adicional?: string
+  prompt_roteiro_short?: string
+  categoria_google_trends?: number
+  subreddits_sugeridos?: string[]
+  gameplay_intensidade_preferida?: string
+  timbre_pitch_shift?: number | null
+  timbre_velocidade?: number | null
+  ativo?: boolean
+}
+
 // Metadata Publicação (from api/status.py)
 export interface MetadataPublicacao {
   titulos: string[]
