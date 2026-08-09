@@ -73,6 +73,38 @@ services:
   #             count: 1
   #             capabilities: [gpu]
 
+  # API HTTP para gestão do pipeline
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faceless_api
+    command: python scripts/start_api.py --host 127.0.0.1 --port 8000
+    ports:
+      - "127.0.0.1:8000:8000"  # Bind apenas em localhost
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-faceless}:${POSTGRES_PASSWORD:-faceless_secret}@postgres:5432/${POSTGRES_DB:-faceless_pipeline}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      LOCAL_MODEL_NAME: ${LOCAL_MODEL_NAME:-ollama/qwen2.5:7b}
+      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-http://ollama:11434}
+      CLOUD_MODEL_IDEACAO: ${CLOUD_MODEL_IDEACAO:-openai/gemini-3.6-flash}
+      CLOUD_MODEL_ROTEIRO: ${CLOUD_MODEL_ROTEIRO:-openai/gemini-3.1-pro}
+      NICHOS_ATIVOS: ${NICHOS_ATIVOS:-cultura_pop}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-medium}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # NOTA: Para uso local apenas. Antes de expor externamente,
+    # implementar autenticação por API key.
+
 volumes:
   postgres_data:
   # ollama_data:

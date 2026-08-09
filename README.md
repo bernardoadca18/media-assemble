@@ -63,9 +63,11 @@ services/       # Um módulo por etapa do pipeline
   audio/        # Fase 3 — TTS (F5-TTS) + validação (Faster-Whisper/WER)
   visual/       # Fase 4 — resolução de assets (banco local + fallback Pexels)
   render/       # Fase 5 — renderização via Remotion
+api/            # FastAPI HTTP para gestão do pipeline (frontend)
 db/             # Modelos SQLAlchemy, sessão e migrations Alembic
 utils/          # Logging estruturado e cliente unificado LiteLLM
 remotion/       # Projeto Node.js/React isolado (Fase 5)
+frontend/       # Interface web de gestão (React + TypeScript + Vite)
 data/           # Assets locais, áudio temporário, saída final
 tests/          # Testes automatizados
 ```
@@ -257,3 +259,38 @@ logger.error(
 ```
 
 Isso permite filtrar logs por `video_id`, `nicho` ou tipo de erro em sistemas de observabilidade (Grafana Loki, ELK, etc.).
+
+## Frontend — Interface de Gestão
+
+O projeto inclui uma interface web para gestão do pipeline, disponível em `frontend/`.
+
+### Iniciando o frontend
+
+```bash
+# Terminal 1: API backend
+uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2: Frontend
+cd frontend && npm run dev
+```
+
+Acesse `http://localhost:5173`.
+
+### Funcionalidades
+
+| Página | Rota | Descrição |
+|--------|------|-----------|
+| Dashboard | `/` | Status da GPU, estatísticas, execuções recentes |
+| Execuções | `/execucoes` | Histórico completo, filtros, retomar falhas |
+| Revisão Manual | `/revisao` | Aprovar/rejeitar roteiros pendentes |
+| Ideias Manuais | `/ideias-manuais` | Criar e listar ideias de vídeo |
+| Gameplay | `/gameplay` | Segmentos indexados, estatísticas por jogo |
+| Nichos | `/nichos` | Configurações de nichos e canais |
+
+### Segurança
+
+- API bind apenas em `127.0.0.1` (uso local)
+- CORS restrito a `localhost:5173` e `localhost:3000`
+- Sem autenticação (não expor publicamente)
+
+Para detalhes completos, veja `frontend/README.md`.

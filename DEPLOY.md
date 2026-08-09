@@ -128,30 +128,54 @@ sudo -u faceless -H bash -c "
 - Python 3.11+
 - PostgreSQL 15+ (ou usar Docker apenas para o banco)
 - FFmpeg
+- Node.js 18+ (para frontend e Remotion)
 
 ### Passos
 
-1. **Instale dependências**
+1. **Instale dependências Python**
    ```bash
    python -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
 
-2. **Configure .env**
+2. **Instale dependências Node.js**
+   ```bash
+   # Frontend
+   cd frontend && npm install && cd ..
+
+   # Remotion (renderização)
+   cd remotion && npm install && cd ..
+   ```
+
+3. **Configure .env**
    ```bash
    cp .env.example .env
    # Edite com suas credenciais locais
    ```
 
-3. **Execute migrations**
+4. **Execute migrations**
    ```bash
    # Criar tabelas no banco
    psql -d faceless_pipeline -f db/migrations/versions/001_initial_schema.py
    ```
 
-4. **Execute o pipeline**
+5. **Inicie a API (backend para frontend)**
    ```bash
+   # Terminal 1: API FastAPI
+   uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+   ```
+
+6. **Inicie o frontend (opcional)**
+   ```bash
+   # Terminal 2: Frontend React
+   cd frontend && npm run dev
+   # Acesse http://localhost:5173
+   ```
+
+7. **Execute o pipeline**
+   ```bash
+   # Terminal 3: Pipeline
    # Modo scheduler
    python main.py
 
