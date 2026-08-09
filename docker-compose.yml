@@ -1,6 +1,23 @@
-version: "3.9"
+# ---------------------------------------------------------------------------
+# Faceless Pipeline - Docker Compose Configuration
+# ---------------------------------------------------------------------------
+# Services:
+#   - postgres: PostgreSQL database (port 5433)
+#   - api: FastAPI backend (port 8080)
+#   - frontend: React frontend (port 5173)
+#   - pipeline: Background scheduler (no external port)
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose up -d api postgres frontend  # Start only specific services
+#   docker compose logs -f api    # View API logs
+#   docker compose down           # Stop all services
+# ---------------------------------------------------------------------------
 
 services:
+  # ---------------------------------------------------------------------------
+  # Database
+  # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
     container_name: faceless_postgres
@@ -19,7 +36,76 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - faceless-network
 
+  # ---------------------------------------------------------------------------
+  # Backend API
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faceless_api
+    command: python scripts/start_api.py --host 0.0.0.0 --port 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-faceless}:${POSTGRES_PASSWORD:-faceless_secret}@postgres:5432/${POSTGRES_DB:-faceless_pipeline}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-http://host.docker.internal:4000}
+      LOCAL_MODEL_NAME: ${LOCAL_MODEL_NAME:-qwen-local}
+      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-http://host.docker.internal:4000}
+      CLOUD_MODEL_IDEACAO: ${CLOUD_MODEL_IDEACAO:-gemini-3.6-flash}
+      CLOUD_MODEL_ROTEIRO: ${CLOUD_MODEL_ROTEIRO:-gemini-3.1-pro}
+      NICHOS_ATIVOS: ${NICHOS_ATIVOS:-cultura_pop}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-medium}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - faceless-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Frontend (React + Vite)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://127.0.0.1:8080}
+    container_name: faceless_frontend
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - faceless-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Pipeline Scheduler (Background Worker)
+  # ---------------------------------------------------------------------------
   pipeline:
     build:
       context: .
@@ -46,16 +132,22 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    # Descomente para GPU (requer nvidia-docker)
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    networks:
+      - faceless-network
+    # GPU support (requer NVIDIA Container Toolkit)
+    # Se encontrar erro "could not select device driver", verifique se o
+    # nvidia-container-toolkit está instalado corretamente
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
-  # Opcional: Ollama para modelos locais
+  # ---------------------------------------------------------------------------
+  # Optional: Ollama for Local Models
+  # ---------------------------------------------------------------------------
   # ollama:
   #   image: ollama/ollama:latest
   #   container_name: faceless_ollama
@@ -64,7 +156,8 @@ services:
   #   volumes:
   #     - ollama_data:/root/.ollama
   #   restart: unless-stopped
-  #   # GPU support
+  #   networks:
+  #     - faceless-network
   #   deploy:
   #     resources:
   #       reservations:
@@ -73,38 +166,16 @@ services:
   #             count: 1
   #             capabilities: [gpu]
 
-  # API HTTP para gestão do pipeline
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: faceless_api
-    command: python scripts/start_api.py --host 0.0.0.0 --port 8080
-    ports:
-      - "127.0.0.1:8080:8080"  # Bind apenas em localhost
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-faceless}:${POSTGRES_PASSWORD:-faceless_secret}@postgres:5432/${POSTGRES_DB:-faceless_pipeline}
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
-      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-http://host.docker.internal:4000}
-      LOCAL_MODEL_NAME: ${LOCAL_MODEL_NAME:-qwen-local}
-      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-http://host.docker.internal:4000}
-      CLOUD_MODEL_IDEACAO: ${CLOUD_MODEL_IDEACAO:-gemini-3.6-flash}
-      CLOUD_MODEL_ROTEIRO: ${CLOUD_MODEL_ROTEIRO:-gemini-3.1-pro}
-      NICHOS_ATIVOS: ${NICHOS_ATIVOS:-cultura_pop}
-      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
-      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-medium}
-      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
-      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-    # NOTA: Para uso local apenas. Antes de expor externamente,
-    # implementar autenticação por API key.
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  faceless-network:
+    driver: bridge
 
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
 volumes:
   postgres_data:
   # ollama_data:

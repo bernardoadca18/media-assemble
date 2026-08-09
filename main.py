@@ -407,15 +407,21 @@ def main():
         return
 
     # Modo scheduler (padrão)
-    scheduler = AsyncIOScheduler()
-    for nicho in settings.nichos_lista:
-        scheduler.add_job(rodar_pipeline_completo, "cron", hour=6, args=[nicho])
+    async def run_scheduler():
+        scheduler = AsyncIOScheduler()
+        for nicho in settings.nichos_lista:
+            scheduler.add_job(rodar_pipeline_completo, "cron", hour=6, args=[nicho])
 
-    scheduler.start()
-    try:
-        asyncio.get_event_loop().run_forever()
-    except (KeyboardInterrupt, SystemExit):
-        pass
+        scheduler.start()
+        print("🗓️  Scheduler iniciado. Aguardando jobs...")
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except (KeyboardInterrupt, SystemExit):
+            scheduler.shutdown()
+            print("👋 Scheduler encerrado.")
+
+    asyncio.run(run_scheduler())
 
 
 if __name__ == "__main__":

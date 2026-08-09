@@ -11,6 +11,8 @@ Uso:
     python scripts/start_api.py --reload  # Desenvolvimento
 """
 import argparse
+import os
+import sys
 import uvicorn
 
 
@@ -36,13 +38,24 @@ def main():
 
     # Aviso de segurança
     if args.host != "127.0.0.1":
+        # Detecta se está rodando em container (sem stdin interativo ou variável de ambiente)
+        em_container = (
+            not sys.stdin.isatty() or
+            os.getenv("RUNNING_IN_DOCKER") == "true" or
+            os.path.exists("/.dockerenv")
+        )
+
         print("⚠️  AVISO: Bind em host diferente de 127.0.0.1!")
         print("⚠️  Autenticação não está implementada!")
         print("⚠️  Isso pode expor a API para outros dispositivos na rede.")
-        response = input("Continuar? (s/N): ")
-        if response.lower() != "s":
-            print("Abortado.")
-            return
+
+        if em_container:
+            print("🐳 Detectado ambiente Docker - continuando automaticamente")
+        else:
+            response = input("Continuar? (s/N): ")
+            if response.lower() != "s":
+                print("Abortado.")
+                return
 
     print(f"🚀 Iniciando API em http://{args.host}:{args.port}")
     print(f"📚 Documentação: http://{args.host}:{args.port}/docs")
