@@ -52,6 +52,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Incluir rotas do status.py
+from api.status import router as status_router
+app.include_router(status_router)
+
 # CORS - restrito ao frontend local
 # TODO: Antes de expor além de localhost, adicionar autenticação por API key
 app.add_middleware(
@@ -619,22 +623,3 @@ async def status_gpu():
         )
 
 
-# ---------------------------------------------------------------------------
-# Execuções - Reimportar do status.py
-# ---------------------------------------------------------------------------
-
-# Importar endpoints existentes de status.py
-from api.status import (
-    app as status_app,
-    ExecucaoResumo,
-    ExecucaoDetalhe,
-    MetadataPublicacaoResposta,
-    IdeiaManualCreate,
-    IdeiaManualResposta,
-)
-
-# Re-registrar endpoints do status.py no app principal
-# (isso é feito automaticamente pela importação, mas garantimos aqui)
-for route in status_app.routes:
-    if route.path not in [r.path for r in app.routes]:
-        app.routes.append(route)

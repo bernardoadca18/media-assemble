@@ -10,7 +10,7 @@ Não inclui webhook de disparo — o APScheduler já cobre agendamento.
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -18,11 +18,7 @@ from db.models import ExecucaoPipeline
 from db.session import AsyncSessionLocal
 from sqlalchemy import select
 
-app = FastAPI(
-    title="Faceless Pipeline API",
-    description="API para consulta de status e execuções do pipeline",
-    version="1.0.0",
-)
+router = APIRouter()
 
 
 class ExecucaoResumo(BaseModel):
@@ -78,7 +74,7 @@ class ExecucaoDetalhe(BaseModel):
     criado_em: str
 
 
-@app.get("/execucoes", response_model=list[ExecucaoResumo])
+@router.get("/execucoes", response_model=list[ExecucaoResumo])
 async def listar_execucoes(
     nicho: Optional[str] = Query(None, description="Filtrar por nicho"),
     status: Optional[str] = Query(None, description="Filtrar por status (sucesso/falha)"),
@@ -119,7 +115,7 @@ async def listar_execucoes(
         ]
 
 
-@app.get("/execucoes/{video_id}", response_model=ExecucaoDetalhe)
+@router.get("/execucoes/{video_id}", response_model=ExecucaoDetalhe)
 async def obter_execucao(video_id: str):
     """
     Obtém detalhes de uma execução específica por video_id.
@@ -151,7 +147,7 @@ async def obter_execucao(video_id: str):
         )
 
 
-@app.get("/execucoes/{video_id}/metadata", response_model=MetadataPublicacaoResposta)
+@router.get("/execucoes/{video_id}/metadata", response_model=MetadataPublicacaoResposta)
 async def obter_metadata_publicacao(video_id: str):
     """
     Obtém metadata de publicação para o vídeo (Subfase 8.6).
@@ -195,7 +191,7 @@ async def obter_metadata_publicacao(video_id: str):
 # Ideias Manuais (Subfase 8.8 — Painel de controle editorial)
 # ---------------------------------------------------------------------------
 
-@app.post("/ideias-manuais", response_model=IdeiaManualResposta, status_code=201)
+@router.post("/ideias-manuais", response_model=IdeiaManualResposta, status_code=201)
 async def criar_ideia_manual(ideia: IdeiaManualCreate):
     """
     Cria uma nova ideia manual.
@@ -220,7 +216,7 @@ async def criar_ideia_manual(ideia: IdeiaManualCreate):
     return IdeiaManualResposta(**ideia_criada)
 
 
-@app.get("/ideias-manuais", response_model=list[IdeiaManualResposta])
+@router.get("/ideias-manuais", response_model=list[IdeiaManualResposta])
 async def listar_ideias_manuais(
     nicho: Optional[str] = None,
     status: Optional[str] = None,
@@ -240,7 +236,7 @@ async def listar_ideias_manuais(
     return [IdeiaManualResposta(**ideia) for ideia in ideias]
 
 
-@app.delete("/ideias-manuais/{ideia_id}")
+@router.delete("/ideias-manuais/{ideia_id}")
 async def descartar_ideia_manual(ideia_id: int):
     """
     Descarta uma ideia manual (marca status como 'descartada').
@@ -258,12 +254,4 @@ async def descartar_ideia_manual(ideia_id: int):
     return {"message": "Ideia descartada com sucesso", "id": ideia_id}
 
 
-@app.get("/health")
-async def health_check():
-    """Endpoint de health check para monitoramento."""
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Health check está definido em api/main.py
