@@ -14,13 +14,15 @@ Campos:
 - video_id: ID do vídeo gerado (quando status='usada')
 - criado_em: timestamp de criação
 """
+from typing import Union
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ENUM
 
 # Revision IDs
-revision = "006_add_ideias_manuais"
-down_revision = "005_add_pgvector_embedding"
+revision: str = '006'
+down_revision: Union[str, None] = '005'
 branch_labels = None
 depends_on = None
 

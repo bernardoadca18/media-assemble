@@ -4,9 +4,21 @@ Migration: Adiciona campos de revisão na tabela roteiros.
 Campos adicionados:
 - status_revisao: pendente, aprovado, rejeitado
 - revisado_em: timestamp da revisão
+
+Revision ID: 003
+Revises: 002
+Create Date: 2026-08-03
 """
+from typing import Sequence, Union
+
 from alembic import op
 import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision: str = '003'
+down_revision: Union[str, None] = '002'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():

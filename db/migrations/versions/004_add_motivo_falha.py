@@ -8,15 +8,17 @@ Revision ID: 004_add_motivo_falha
 Revises: 003_add_review_fields
 Create Date: 2026-08-08
 """
+from typing import Union
+
 from alembic import op
 import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '004_add_motivo_falha'
-down_revision: str = '003_add_review_fields'
-branch_labels = None
-depends_on = None
+revision: str = '004'
+down_revision: Union[str, None] = '003'
+branch_labels: Union[str, None] = None
+depends_on: Union[str, None] = None
 
 
 def upgrade() -> None:

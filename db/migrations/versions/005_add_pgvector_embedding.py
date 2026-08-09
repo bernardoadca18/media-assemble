@@ -7,19 +7,30 @@ Revision ID: 005_add_pgvector_embedding
 Revises: 004_add_motivo_falha
 Create Date: 2026-08-08
 """
+from typing import Union
+
 from alembic import op
 import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '005_add_pgvector_embedding'
-down_revision: str = '004_add_motivo_falha'
+revision: str = '005'
+down_revision: Union[str, None] = '004'
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     # Ativar extensão pgvector (requer superuser)
+    # Verifica se a extensão pode ser criada
+    conn = op.get_bind()
+    result = conn.execute(sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'"))
+    has_vector = result.fetchone() is not None
+
+    if not has_vector:
+        print("WARNING: pgvector extension not available. Skipping embedding features.")
+        return
+
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # Adicionar coluna de embedding na tabela videos_ideias

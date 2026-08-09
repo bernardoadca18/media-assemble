@@ -270,7 +270,7 @@ async def listar_segmentos_gameplay(
     """
     segmentos = await buscar_gameplay_segmentos(
         jogo=jogo,
-        intensidade=intensidade,
+        faixa_intensidade=intensidade,
         limite=limite
     )
 

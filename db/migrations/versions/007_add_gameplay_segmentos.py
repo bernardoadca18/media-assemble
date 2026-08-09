@@ -5,13 +5,15 @@ Revises: 006_add_ideias_manuais
 Create Date: 2026-08-08
 
 """
+from typing import Union
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '007_add_gameplay_segmentos'
-down_revision = '006_add_ideias_manuais'
+revision: str = '007'
+down_revision: Union[str, None] = '006'
 branch_labels = None
 depends_on = None
 
