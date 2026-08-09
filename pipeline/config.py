@@ -13,12 +13,15 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://usuario:senha@localhost:5432/faceless_pipeline"
 
     # --- LiteLLM / Modelos ---
+    # LiteLLM Proxy centralizado (todas as requisições passam por ele)
     litellm_master_key: str | None = None
     litellm_base_url: str | None = None
-    local_model_name: str = "ollama/qwen2.5:7b"
-    local_model_base_url: str = "http://localhost:11434"
-    cloud_model_ideacao: str = "openai/gemini-3.6-flash"
-    cloud_model_roteiro: str = "openai/gemini-3.1-pro"
+    # Modelos locais (via LiteLLM proxy, não mais conexão direta)
+    local_model_name: str = "qwen-local"
+    local_model_base_url: str = "http://host.docker.internal:4000"
+    # Modelos em nuvem (via LiteLLM proxy)
+    cloud_model_ideacao: str = "gemini-3.6-flash"
+    cloud_model_roteiro: str = "gemini-3.1-pro"
 
     # --- Áudio / GPU ---
     whisper_model_size: str = "medium"
