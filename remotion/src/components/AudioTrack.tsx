@@ -36,8 +36,8 @@ export const AudioTrack: React.FC<AudioTrackProps> = ({
         />
       )}
 
-      {/* Trilha de fundo */}
-      {backgroundTrackPath && (
+      {/* Trilha de fundo - apenas se for um arquivo válido (.mp3, .wav, .ogg) */}
+      {backgroundTrackPath && /\.(mp3|wav|ogg)$/i.test(backgroundTrackPath) && (
         <Audio
           src={staticFile(backgroundTrackPath)}
           volume={adjustedBackgroundVolume}

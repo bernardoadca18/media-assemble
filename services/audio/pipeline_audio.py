@@ -138,9 +138,12 @@ async def gerar_e_validar_cena(
             )
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "pipeline_audio.tentativa_falhou",
-                extra={"cena_id": cena.cena_id, "tentativa": tentativa, "erro": str(e)},
+                extra={
+                    "cena_id": cena.cena_id,
+                    "tentativa": tentativa,
+                },
             )
             continue
 
