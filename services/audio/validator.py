@@ -52,6 +52,32 @@ def _carregar_whisper():
     return _whisper_model
 
 
+def liberar_modelo_whisper() -> None:
+    """
+    Libera o modelo Whisper da memória GPU/RAM.
+
+    Deve ser chamado após concluir todo o pipeline de áudio para evitar
+    consumo contínuo de ~2-5GB VRAM e RAM.
+    """
+    global _whisper_model
+    if _whisper_model is not None:
+        logger.info("validator.liberando_whisper")
+        try:
+            # Tenta liberar VRAM
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            _whisper_model = None
+            import gc
+            gc.collect()
+            logger.info("validator.whisper_liberado")
+        except Exception as e:
+            logger.warning("validator.erro_liberar", extra={"erro": str(e)})
+
+
 def _normalizar_texto(texto: str) -> str:
     """
     Normaliza texto para comparação de WER.

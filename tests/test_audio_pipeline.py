@@ -236,7 +236,7 @@ class TestRetrySeed:
                     mock_tts.return_value = Path(f"{tmpdir}/cena_001.wav")
                     # Primeira tentativa: WER alto, segunda: WER baixo
                     mock_valid.side_effect = [
-                        (0.15, [Palavra(text="teste", start=0.0, end=0.5)]),  # WER alto
+                        (0.20, [Palavra(text="teste", start=0.0, end=0.5)]),  # WER alto (> 0.15)
                         (0.03, [Palavra(text="teste", start=0.0, end=0.5)]),  # WER baixo
                     ]
 

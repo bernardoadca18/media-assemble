@@ -4,16 +4,18 @@ FASE 3 — Pipeline de áudio completo.
 Orquestra a geração de áudio (TTS), validação (Whisper + WER) e concatenação
 para todas as cenas de um roteiro.
 """
+import gc
 import logging
 import random
+import shutil
 import tempfile
 from pathlib import Path
 
 from pipeline.config import settings
 from pipeline.schemas import Cena, Roteiro
 from services.audio.mixer import concatenar_audios
-from services.audio.tts_engine import gerar_audio_cena
-from services.audio.validator import validar_audio
+from services.audio.tts_engine import gerar_audio_cena, liberar_modelo_tts
+from services.audio.validator import validar_audio, liberar_modelo_whisper
 from services.audio.timbre_variation import aplicar_variacao_timbre, obter_perfil_voz_canal
 
 logger = logging.getLogger("services.audio.pipeline_audio")
@@ -235,5 +237,22 @@ async def gerar_audio_do_roteiro(
             "total_palavras": len(palavras_absolutas),
         },
     )
+
+    # LIBERAÇÃO DE MEMÓRIA - Fase 3 completa
+    # Libera modelos TTS e Whisper da memória GPU/RAM
+    logger.info("pipeline_audio.liberando_modelos")
+    liberar_modelo_tts()
+    liberar_modelo_whisper()
+
+    # Limpa diretório temporário se foi criado por esta função
+    if dir_temp and dir_temp.exists():
+        try:
+            shutil.rmtree(dir_temp)
+            logger.info("pipeline_audio.temp_limpado", extra={"dir_temp": str(dir_temp)})
+        except Exception as e:
+            logger.warning("pipeline_audio.erro_limpar_temp", extra={"erro": str(e)})
+
+    # Força garbage collection
+    gc.collect()
 
     return roteiro

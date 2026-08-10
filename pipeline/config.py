@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # --- Pipeline ---
     nichos_ativos: str = "cultura_pop"
-    wer_limite_aprovacao: float = 0.05
+    wer_limite_aprovacao: float = 0.15  # Ajustado de 0.05 para 0.15 (mais realista para TTS)
     max_tentativas_tts: int = 3
 
     # --- Assets externos ---

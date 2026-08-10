@@ -117,3 +117,27 @@ def _sintetizar_sync(modelo, texto, ref_audio_path, ref_text, saida_path, seed):
     except Exception as e:
         logger.error("tts_engine.sintese_falhou", extra={"erro": str(e)})
         raise
+
+
+def liberar_modelo_tts() -> None:
+    """
+    Libera o modelo TTS da memória GPU/RAM.
+
+    Deve ser chamado após concluir todo o pipeline de áudio para evitar
+    consumo contínuo de ~2-4GB VRAM e RAM.
+    """
+    global _model
+    if _model is not None:
+        logger.info("tts_engine.liberando_modelo")
+        try:
+            # Tenta liberar VRAM se o modelo tiver métodos específicos
+            if hasattr(_model, 'cuda'):
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            _model = None
+            import gc
+            gc.collect()
+            logger.info("tts_engine.modelo_liberado")
+        except Exception as e:
+            logger.warning("tts_engine.erro_liberar", extra={"erro": str(e)})

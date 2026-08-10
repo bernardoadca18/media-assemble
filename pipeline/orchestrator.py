@@ -10,7 +10,10 @@ Python explícito, com cada etapa isolada em services/.
 - Fase 5 (Renderização/Remotion): implementada
 """
 import asyncio
+import gc
 import logging
+import shutil
+from pathlib import Path
 
 from services.trends.scraper import coletar_tendencias
 from services.trends.normalizer import normalizar_tendencias
@@ -20,6 +23,41 @@ from db.models import salvar_ideias, salvar_roteiro, salvar_execucao
 from utils.logger import set_video_id
 
 logger = logging.getLogger("orchestrator")
+
+
+def _verificar_memoria_disponivel() -> float:
+    """
+    Retorna memória disponível em GB.
+    Usa psutil se disponível, caso contrário retorna valor alto (sem verificação).
+    """
+    try:
+        import psutil
+        memoria = psutil.virtual_memory()
+        return memoria.available / (1024 ** 3)  # Converte para GB
+    except ImportError:
+        return 999.0  # psutil não disponível, assume memória infinita
+
+
+def _limpar_cache_temporarios() -> None:
+    """
+    Limpa caches e diretórios temporários antigos.
+    """
+    temp_dirs = [
+        Path("/tmp"),
+        Path.cwd() / "temp",
+    ]
+
+    for temp_dir in temp_dirs:
+        if temp_dir.exists():
+            try:
+                # Remove arquivos temporários antigos do projeto
+                for arquivo in temp_dir.glob("timbre_var_*.wav"):
+                    try:
+                        arquivo.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug("orchestrator.erro_limpar_temp", extra={"erro": str(e)})
 
 
 async def rodar_etapa_ideacao(nicho: str) -> list:
@@ -296,6 +334,18 @@ async def rodar_pipeline_completo(nicho: str) -> dict | None:
     except Exception as e:
         return await _registrar_falha("roteirizacao", e)
 
+    # --- VERIFICAÇÃO DE MEMÓRIA PRÉ-FASE 3 ---
+    memoria_disponivel = _verificar_memoria_disponivel()
+    logger.info("orchestrator.memoria_disponivel", extra={"memoria_gb": memoria_disponivel})
+    if memoria_disponivel < 1.0:  # Menos de 1GB disponível
+        logger.warning("orchestrator.memoria_baixa", extra={"memoria_gb": memoria_disponivel})
+        # Tenta liberar memória antes de continuar
+        _limpar_cache_temporarios()
+        gc.collect()
+        memoria_disponivel = _verificar_memoria_disponivel()
+        if memoria_disponivel < 0.5:  # Menos de 500MB
+            raise RuntimeError(f"Memória insuficiente para continuar: {memoria_disponivel:.2f}GB disponível")
+
     # --- Fase 3: Geração de áudio ---
     try:
         from services.audio.pipeline_audio import gerar_audio_do_roteiro
@@ -313,6 +363,16 @@ async def rodar_pipeline_completo(nicho: str) -> dict | None:
         )
     except Exception as e:
         return await _registrar_falha("audio", e, video_id)
+
+    # --- LIMPEZA PÓS-FASE 3 ---
+    # Modelos TTS e Whisper já foram liberados dentro de gerar_audio_do_roteiro
+    logger.info("orchestrator.pos_audio_cleanup")
+    _limpar_cache_temporarios()
+    gc.collect()
+
+    # --- VERIFICAÇÃO DE MEMÓRIA PRÉ-FASE 4 ---
+    memoria_disponivel = _verificar_memoria_disponivel()
+    logger.info("orchestrator.memoria_pre_assets", extra={"memoria_gb": memoria_disponivel})
 
     # --- Fase 4: Resolução de assets visuais ---
     try:
