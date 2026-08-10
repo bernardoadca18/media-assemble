@@ -90,7 +90,7 @@ DIRETRIZES EDITORIAIS OBRIGATÓRIAS:
    - Prefira "imagem" para maior controle visual; use "video" com moderação.
 
 6. TEXTOS EM TELA (texto_destaque_tela):
-   - Use COM MODERAÇÃO: no máximo 1 a cada 3 cenas.
+   - Use COM MODERAÇÃO: no máximo em metade das cenas.
    - Apenas para ênfase em nomes, conceitos-chave ou revelações impactantes.
    - Não repita o que está sendo dito na locução — complemente ou destaque.
 
@@ -146,7 +146,7 @@ VALIDAÇÕES OBRIGATÓRIAS:
 - total de cenas: entre 15 e 40 (para duração de ~3 minutos)
 - duração de cada cena: entre 3.0 e 8.0 segundos
 - não repetir animacao_imagem mais que 2x consecutivas (para cenas ken_burns)
-- texto_destaque_tela: máximo em 1/3 das cenas
+- texto_destaque_tela: máximo em metade das cenas
 - elemento_grafico: obrigatório quando estilo_visual = "vox_motion", null quando "ken_burns"
 """
 
@@ -212,13 +212,13 @@ def _validar_regras_negocio(roteiro: Roteiro) -> list[str]:
                 f"Máximo permitido: 2 repetições."
             )
 
-    # Validar moderação de texto_destaque_tela
+    # Validar moderação de texto_destaque_tela (mais tolerante: 50% das cenas)
     cenas_com_destaque = sum(1 for c in roteiro.cenas if c.overlays.texto_destaque_tela)
-    limite_destaque = len(roteiro.cenas) // 3
+    limite_destaque = len(roteiro.cenas) // 2  # Aumentado de 1/3 para 1/2
     if cenas_com_destaque > limite_destaque:
         erros.append(
             f"Texto_destaque_tela usado em {cenas_com_destaque} cenas. "
-            f"Máximo permitido: {limite_destaque} (1/3 do total)."
+            f"Máximo permitido: {limite_destaque} (1/2 do total)."
         )
 
     return erros
