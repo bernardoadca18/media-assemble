@@ -1,0 +1,61 @@
+# Tags para Cultura Pop - Banco de Assets
+# Uma tag por linha (linhas começando com # são ignoradas)
+
+# Marvel
+doctor_doom
+marvel
+iron_man
+spider_man
+thor
+captain_america
+hulk
+black_widow
+wolverine
+deadpool
+
+# DC Comics
+batman
+superman
+joker
+wonder_woman
+aquaman
+flash
+harley_quinn
+
+# Anime/Manga
+naruto
+dragon_ball
+one_piece
+attack_on_titan
+demon_slayer
+my_hero_academia
+jujutsu_kaisen
+
+# Games
+minecraft
+fortnite
+zelda
+mario
+pokemon
+cyberpunk
+
+# Ficção Científica
+star_wars
+star_trek
+matrix
+blade_runner
+
+# Horror
+scary_movies
+horror
+halloween
+
+# Fantasy
+lord_of_the_rings
+harry_potter
+game_of_thrones
+
+# Pop Culture Icons
+pop_art
+vintage_comics
+retro_games

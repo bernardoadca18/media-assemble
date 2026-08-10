@@ -23,6 +23,10 @@ from litellm.exceptions import (
 )
 
 from pipeline.config import settings
+
+# Configuração global do LiteLLM: remove parâmetros não suportados pelo backend
+# Isso é necessário para modelos Ollama que não suportam encoding_format
+litellm.drop_params = True
 from pipeline.gpu_lock import gpu_task
 from utils.retry import ErroPermanente, ErroTransitorio, com_retry
 
@@ -113,7 +117,10 @@ async def _complete_cloud_interno(prompt: str, model: str | None = None, **kwarg
     if settings.litellm_base_url and settings.litellm_master_key:
         api_base = settings.litellm_base_url
         api_key = settings.litellm_master_key
-        logger.debug(f"Usando proxy LiteLLM: {api_base}")
+        # Quando usando proxy, adiciona prefixo openai/ para evitar detecção automática de provider
+        if not modelo_alvo.startswith("openai/"):
+            modelo_alvo = f"openai/{modelo_alvo}"
+        logger.debug(f"Usando proxy LiteLLM: {api_base} com modelo {modelo_alvo}")
 
     resposta = await litellm.acompletion(
         model=modelo_alvo,
@@ -168,7 +175,7 @@ async def complete_cloud(
 
 async def generate_embedding(
     text: str,
-    model: str = "text-embedding-3-small",
+    model: str = "ollama-embed",
     operacao: str = "embedding",
     nicho: str | None = None,
     video_id: str | None = None,
@@ -176,12 +183,12 @@ async def generate_embedding(
     """
     Gera embedding para um texto usando modelo de embedding via LiteLLM.
 
-    Usa modelo de embedding padrão text-embedding-3-small (OpenAI) ou
+    Usa modelo de embedding padrão ollama-embed ou
     modelo configurado via variável de ambiente.
 
     Args:
         text: Texto para gerar embedding
-        model: Modelo de embedding (padrão: text-embedding-3-small)
+        model: Modelo de embedding (padrão: ollama-embed)
         operacao: Nome da operação para rastreamento de custos
         nicho: Nicho relacionado (para rastreamento)
         video_id: ID do vídeo (para rastreamento)
@@ -189,19 +196,47 @@ async def generate_embedding(
     Returns:
         Lista de floats representando o embedding (dimensão depende do modelo)
     """
-    # Configurar proxy LiteLLM se disponível
-    api_base = None
-    api_key = None
+    # Usar httpx diretamente para evitar parâmetros extras do LiteLLM
     if settings.litellm_base_url and settings.litellm_master_key:
-        api_base = settings.litellm_base_url
+        import httpx
+
+        api_base = settings.litellm_base_url.rstrip("/")
         api_key = settings.litellm_master_key
 
+        logger.debug(f"Usando proxy LiteLLM para embedding: {api_base} com modelo {model}")
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{api_base}/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "input": text,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                # Extrair embedding da resposta
+                if "data" in data and len(data["data"]) > 0:
+                    return data["data"][0]["embedding"]
+
+                logger.error(f"Resposta inesperada do proxy: {data}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Erro ao chamar proxy LiteLLM para embedding: {e}")
+            raise
+
+    # Fallback para LiteLLM direto (sem proxy)
     try:
         resposta = await litellm.aembedding(
             model=model,
             input=[text],
-            api_base=api_base,
-            api_key=api_key,
         )
 
         # Registrar uso para custos
@@ -218,11 +253,22 @@ async def generate_embedding(
             )
 
         # Retornar o embedding (primeiro da lista, pois passamos um único input)
-        return resposta.data[0]["embedding"]
+        # A resposta do LiteLLM tem estrutura: EmbeddingResponse(data=[Embedding(embedding=[...])])
+        if resposta.data and len(resposta.data) > 0:
+            embedding_obj = resposta.data[0]
+            # Pode ser objeto Embedding ou dict
+            if hasattr(embedding_obj, "embedding"):
+                return embedding_obj.embedding
+            elif isinstance(embedding_obj, dict):
+                return embedding_obj.get("embedding")
+        logger.error(f"Estrutura de resposta inesperada: {resposta}")
+        return None
 
     except Exception as e:
         logger.error(
             "litellm.erro_embedding",
-            extra={"erro": str(e), "tipo": type(e).__name__}
+            extra={"erro": str(e), "tipo": type(e).__name__, "modelo": model}
         )
+        import traceback
+        logger.error(f"Traceback embedding: {traceback.format_exc()}")
         raise

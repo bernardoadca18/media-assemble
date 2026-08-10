@@ -15,6 +15,7 @@ import logging
 from sqlalchemy import String, Text, DateTime, Float, Boolean, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
 
 from db.session import AsyncSessionLocal
 
@@ -37,8 +38,8 @@ class VideoIdeia(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pendente")
     data_criacao: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Embedding para checagem de duplicidade semântica (Fase 8.2)
-    # Dimensão 1536 = text-embedding-3-small da OpenAI
-    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Dimensão 1024 = ollama-embed (nomic-embed-text)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
 
 
 class RoteiroDB(Base):
@@ -140,15 +141,14 @@ async def salvar_ideias(ideias: list, gerar_embedding: bool = True) -> None:
     async with AsyncSessionLocal() as session:
         for ideia in ideias:
             # Gerar embedding para o título
-            embedding_str = None
+            embedding_list = None
             try:
                 embedding_list = await _gerar_emb(
                     text=ideia.titulo_sugerido,
                     operacao="salvar_ideia",
                     nicho=ideia.nicho,
                 )
-                # Converter lista para string no formato de array do Postgres
-                embedding_str = "[" + ",".join(str(v) for v in embedding_list) + "]"
+                # embedding_list já é list[float], pronto para Vector(1024)
             except Exception as e:
                 # Log erro mas não bloqueia salvamento
                 import logging
@@ -163,7 +163,7 @@ async def salvar_ideias(ideias: list, gerar_embedding: bool = True) -> None:
                 titulo_sugerido=ideia.titulo_sugerido,
                 descricao_breve=ideia.descricao_breve,
                 nicho=ideia.nicho or "cultura_pop",
-                embedding=embedding_str,
+                embedding=embedding_list,  # Passa lista diretamente para Vector(1024)
             )
             session.add(registro)
         await session.commit()
