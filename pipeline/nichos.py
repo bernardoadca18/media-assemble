@@ -22,6 +22,8 @@ class ConfigNicho(NamedTuple):
     # Fase 9.3 — Variação de timbre por canal
     pitch_shift_semitons: float | None = None  # -2.0 a +2.0, None = determinístico por canal_id
     velocidade_fala: float | None = None  # 0.95 a 1.05, None = determinístico por canal_id
+    # Refatoração TTS — Perfil de voz treinado (Kokoro+Seed-VC)
+    voz_run_name: str = "minha_voz_v1"  # Nome do checkpoint fine-tunado no serviço de voz
 
 
 # Configurações de cada nicho

@@ -1,169 +1,183 @@
 """
-FASE 3 — Pipeline de áudio completo.
+FASE 3 Pipeline de áudio completo (REFATORADO).
 
-Orquestra a geração de áudio (TTS), validação (Whisper + WER) e concatenação
+Orquestra geração de áudio (Kokoro+Seed-VC), validação (Whisper + WER) e concatenação
 para todas as cenas de um roteiro.
 """
 import gc
 import logging
-import random
 import shutil
 import tempfile
 from pathlib import Path
 
 from pipeline.config import settings
-from pipeline.schemas import Cena, Roteiro
+from pipeline.schemas import Cena, Roteiro, Palavra
+from pipeline.gpu_lock import gpu_task
 from services.audio.mixer import concatenar_audios
-from services.audio.tts_engine import gerar_audio_cena, liberar_modelo_tts
 from services.audio.validator import validar_audio, liberar_modelo_whisper
 from services.audio.timbre_variation import aplicar_variacao_timbre, obter_perfil_voz_canal
+from services.audio.glossario_fonetico import aplicar_glossario
+from services.audio.voice_pipeline_client import get_voice_pipeline_client
 
 logger = logging.getLogger("services.audio.pipeline_audio")
 
 
-def _limpar_tentativas_descartadas(tentativas_paths: list[Path], manter: Path) -> None:
-    """
-    Remove os arquivos de tentativas de TTS que não foram escolhidas, para
-    não acumular lixo em disco a cada cena processada. `missing_ok=True`
-    também cobre o caso de testes com TTS mockado, onde os arquivos nunca
-    chegam a ser criados de fato.
-    """
-    for path in tentativas_paths:
-        if path != manter:
-            path.unlink(missing_ok=True)
-
-
-async def gerar_e_validar_cena(
+async def _gerar_e_validar_cena(
     cena: Cena,
     dir_temp: Path,
+    run_name: str | None = None,
     max_tentativas: int | None = None,
     canal_id: str | None = None,
     config_nicho: "ConfigNicho | None" = None,
-) -> tuple[Path, float, list]:
+) -> tuple[Path, float, list[Palavra]]:
     """
-    Gera e valida áudio para uma única cena com retry por seed.
-
-    Cada tentativa é escrita em um arquivo PRÓPRIO (`cena_XXX_tentativa_N.wav`)
-    — nunca no mesmo caminho entre tentativas. Isso é intencional: se todas
-    as tentativas escrevessem no mesmo arquivo, uma tentativa pior gerada
-    por último sobrescreveria no disco uma tentativa melhor já registrada
-    em memória, e `cena.audio_path`/`cena.wer_final` ficariam
-    inconsistentes com o áudio realmente salvo.
-
-    Tenta gerar e validar até `max_tentativas` vezes. Se esgotar as
-    tentativas sem aprovar, aceita a melhor tentativa observada (menor WER)
-    e marca `revisao_manual_necessaria = True`.
-
-    Fase 9.3: Aplica variação de timbre por canal ANTES da validação WER.
+    Gera e valida áudio para uma cena usando Kokoro+Seed-VC.
 
     Args:
-        cena: Cena com texto_locucao preenchido.
-        dir_temp: Diretório temporário para os áudios.
-        max_tentativas: Máximo de tentativas. Usa settings.max_tentativas_tts se None.
-        canal_id: ID do canal para variação de timbre (Fase 9.3).
-        config_nicho: Configuração do nicho com overrides de timbre (Fase 9.3).
+        cena: Cena com texto_locucao
+        dir_temp: Diretório temporário
+        run_name: Perfil de voz treinado
+        max_tentativas: Máximo de tentativas (default: settings.max_tentativas_tts)
+        canal_id: ID do canal (para variação de timbre opcional)
+        config_nicho: Configuração do nicho (para overrides de voz)
 
     Returns:
-        Tupla (caminho_audio, wer, palavras_transcritas) referente à
-        tentativa escolhida (aprovada, ou a melhor entre as reprovadas).
+        Tupla (caminho_audio, wer, palavras_transcritas)
 
     Side effects:
         - Preenche cena.audio_path, cena.palavras_transcritas, cena.wer_final
+        - Preenche cena.run_name_usado, cena.tempo_sintese_segundos
         - Define cena.revisao_manual_necessaria = True se esgotar tentativas
         - Remove do disco os arquivos das tentativas não escolhidas
     """
     if max_tentativas is None:
         max_tentativas = settings.max_tentativas_tts
 
+    # Determina run_name (perfil de voz) a usar
+    if run_name is None:
+        run_name = config_nicho.voz_run_name if config_nicho else settings.voice_pipeline_run_name_default
+
+    # Aplica glossário fonético ao texto ANTES de enviar ao Kokoro
+    # (mantém texto original em cena.texto_locucao para legendas e validação)
+    texto_para_kokoro = aplicar_glossario(cena.texto_locucao)
+
+    client = get_voice_pipeline_client()
+
     melhor_wer = float("inf")
-    melhor_palavras: list = []
+    melhor_palavras: list[Palavra] = []
     melhor_audio_path: Path | None = None
+    melhor_tempo_sintese: float | None = None
+
     tentativas_paths: list[Path] = []
 
     for tentativa in range(1, max_tentativas + 1):
-        # Seed diferente a cada tentativa para variação na síntese
-        seed = random.randint(1, 100000) if tentativa > 1 else None
         caminho_tentativa = dir_temp / f"cena_{cena.cena_id:03d}_tentativa_{tentativa}.wav"
         tentativas_paths.append(caminho_tentativa)
 
         try:
-            await gerar_audio_cena(
-                texto=cena.texto_locucao,
-                saida=caminho_tentativa,
-                seed=seed,
+            logger.info(
+                "pipeline_audio.gerando_cena",
+                extra={
+                    "cena_id": cena.cena_id,
+                    "tentativa": tentativa,
+                    "max_tentativas": max_tentativas,
+                    "run_name": run_name,
+                }
             )
 
-            # Fase 9.3 — Aplicar variação de timbre ANTES da validação WER
-            audio_para_validar = caminho_tentativa
+            # Gera áudio via API Kokoro+Seed-VC
+            audio_path, tempo_sintese = await client.narrar(
+                texto=texto_para_kokoro,
+                run_name=run_name,
+                output_path=caminho_tentativa,
+            )
+
+            # Fase 9.3 — Aplicar variação de timbre OPCIONAL (pós-processamento)
+            audio_para_validar = audio_path
             if canal_id:
                 pitch_shift, velocidade = obter_perfil_voz_canal(canal_id, config_nicho)
-                audio_para_validar = await aplicar_variacao_timbre(
-                    audio_path=caminho_tentativa,
-                    canal_id=canal_id,
-                    pitch_shift=pitch_shift,
-                    velocidade=velocidade,
-                )
-                # Atualizar caminho se variação foi aplicada a arquivo novo
-                if audio_para_validar != caminho_tentativa:
-                    tentativas_paths.append(audio_para_validar)
+                if abs(pitch_shift) > 0.01 or abs(velocidade - 1.0) > 0.01:
+                    audio_para_validar = await aplicar_variacao_timbre(
+                        audio_path=audio_path,
+                        canal_id=canal_id,
+                        pitch_shift=pitch_shift,
+                        velocidade=velocidade,
+                        saida=dir_temp / f"cena_{cena.cena_id:03d}_timbre_var_{tentativa}.wav",
+                    )
 
+            # Validação via Whisper + WER (mantido do sistema original)
             wer, palavras = await validar_audio(
                 caminho_audio=audio_para_validar,
-                texto_esperado=cena.texto_locucao,
+                texto_esperado=cena.texto_locucao,  # Texto ORIGINAL (sem glossário)
             )
 
-            if wer < melhor_wer:
-                melhor_wer = wer
-                melhor_palavras = palavras
-                melhor_audio_path = audio_para_validar
-
-            if wer <= settings.wer_limite_aprovacao:
-                logger.info(
-                    "pipeline_audio.cena_aprovada",
-                    extra={"cena_id": cena.cena_id, "tentativa": tentativa, "wer": wer},
-                )
-                cena.audio_path = str(audio_para_validar)
-                cena.palavras_transcritas = palavras
-                cena.wer_final = wer
-                cena.revisao_manual_necessaria = False
-                _limpar_tentativas_descartadas(tentativas_paths, manter=audio_para_validar)
-                return audio_para_validar, wer, palavras
-
-            logger.warning(
-                "pipeline_audio.wer_alto",
+            logger.info(
+                "pipeline_audio.validado",
                 extra={
                     "cena_id": cena.cena_id,
                     "tentativa": tentativa,
                     "wer": wer,
                     "limite": settings.wer_limite_aprovacao,
-                },
+                }
             )
 
+            # Atualiza melhor tentativa
+            if wer < melhor_wer:
+                melhor_wer = wer
+                melhor_palavras = palavras
+                melhor_audio_path = audio_para_validar
+                melhor_tempo_sintese = tempo_sintese
+
+            # Se passou no WER, usa este áudio
+            if wer <= settings.wer_limite_aprovacao:
+                logger.info(
+                    "pipeline_audio.cena_aprovada",
+                    extra={
+                        "cena_id": cena.cena_id,
+                        "tentativa": tentativa,
+                        "wer": wer,
+                    }
+                )
+                break
+
         except Exception as e:
-            logger.exception(
-                "pipeline_audio.tentativa_falhou",
+            logger.error(
+                "pipeline_audio.erro_tentativa",
                 extra={
                     "cena_id": cena.cena_id,
                     "tentativa": tentativa,
+                    "erro": str(e),
                 },
+                exc_info=True,
             )
             continue
 
-    # Esgotou tentativas - aceita a melhor observada
+    # Verifica se conseguiu gerar pelo menos um áudio
     if melhor_audio_path is not None:
-        logger.warning(
-            "pipeline_audio.tentativas_esgotadas",
-            extra={"cena_id": cena.cena_id, "melhor_wer": melhor_wer, "revisao_manual": True},
-        )
         cena.audio_path = str(melhor_audio_path)
         cena.palavras_transcritas = melhor_palavras
         cena.wer_final = melhor_wer
-        cena.revisao_manual_necessaria = True
+        cena.run_name_usado = run_name
+        cena.tempo_sintese_segundos = melhor_tempo_sintese
+
+        if melhor_wer > settings.wer_limite_aprovacao:
+            cena.revisao_manual_necessaria = True
+
         _limpar_tentativas_descartadas(tentativas_paths, manter=melhor_audio_path)
         return melhor_audio_path, melhor_wer, melhor_palavras
 
-    # Não conseguiu gerar nenhum áudio (todas as tentativas lançaram exceção)
+    # Não conseguiu gerar nenhum áudio
     raise RuntimeError(f"Não foi possível gerar áudio para cena {cena.cena_id}")
+
+
+def _limpar_tentativas_descartadas(tentativas_paths: list[Path], manter: Path) -> None:
+    """
+    Remove arquivos de tentativas TTS que não foram escolhidas,
+    para não acumular lixo em disco a cada cena processada.
+    """
+    for path in tentativas_paths:
+        if path != manter:
+            path.unlink(missing_ok=True)
 
 
 async def gerar_audio_do_roteiro(
@@ -174,9 +188,11 @@ async def gerar_audio_do_roteiro(
     Gera todo o áudio para um roteiro completo.
 
     Para cada cena:
-    1. Gera áudio via F5-TTS
-    2. Valida via Faster-Whisper + WER
-    3. Retry com seeds diferentes se WER alto
+    1. Gera áudio via Kokoro+Seed-VC (API externa)
+    2. Aplica glossário fonético automaticamente
+    3. Valida via Faster-Whisper + WER
+    4. Retry com novo texto se WER alto
+    5. Aplica variação de timbre opcional (pós-processamento)
 
     Depois concatena todos os áudios em um áudio master.
 
@@ -186,7 +202,7 @@ async def gerar_audio_do_roteiro(
 
     Returns:
         Roteiro com audio_path e palavras_transcritas preenchidos em cada cena,
-        e metadata.audio_final_path + metadata.palavras_transcritas atualizados.
+        metadata.audio_final_path e metadata.palavras_transcritas atualizados.
     """
     if dir_temp is None:
         dir_temp = Path(tempfile.mkdtemp(prefix="audio_pipeline_"))
@@ -200,48 +216,96 @@ async def gerar_audio_do_roteiro(
             "video_id": roteiro.metadata.video_id,
             "total_cenas": len(roteiro.cenas),
             "dir_temp": str(dir_temp),
-        },
+        }
     )
 
-    for i, cena in enumerate(roteiro.cenas):
+    # Obtém config do nicho se disponível
+    from pipeline.nichos import obter_config_nicho
+    config_nicho = None
+    try:
+        config_nicho = obter_config_nicho(roteiro.metadata.nicho)
+    except Exception:
+        logger.warning("pipeline_audio.config_nicho_nao_encontrado")
+
+    # Determina run_name para este roteiro
+    run_name = config_nicho.voz_run_name if config_nicho else settings.voice_pipeline_run_name_default
+
+    # Processa cada cena sequencialmente
+    total_tempo_sintese = 0.0
+    for i, cena in enumerate(roteiro.cenas, 1):
         logger.info(
             "pipeline_audio.processando_cena",
             extra={
                 "video_id": roteiro.metadata.video_id,
                 "cena_id": cena.cena_id,
-                "ordem": i + 1,
-                "total": len(roteiro.cenas),
-            },
+                "progresso": f"{i}/{len(roteiro.cenas)}",
+            }
         )
-        await gerar_e_validar_cena(cena, dir_temp)
 
-    audio_master, palavras_absolutas = await concatenar_audios(
+        try:
+            audio_path, wer, palavras = await _gerar_e_validar_cena(
+                cena=cena,
+                dir_temp=dir_temp,
+                run_name=run_name,
+                canal_id=roteiro.metadata.canal_id if hasattr(roteiro.metadata, 'canal_id') else None,
+                config_nicho=config_nicho,
+            )
+
+            if cena.tempo_sintese_segundos:
+                total_tempo_sintese += cena.tempo_sintese_segundos
+
+        except Exception as e:
+            logger.error(
+                "pipeline_audio.falha_cena",
+                extra={
+                    "video_id": roteiro.metadata.video_id,
+                    "cena_id": cena.cena_id,
+                    "erro": str(e),
+                },
+                exc_info=True,
+            )
+            raise
+
+    # Concatena todos os áudios em um áudio master
+    audio_master_path, palavras_absolutas = await concatenar_audios(
         cenas=roteiro.cenas,
         dir_temp=dir_temp,
     )
 
-    roteiro.metadata.audio_final_path = audio_master
+    # Atualiza metadata do roteiro
+    roteiro.metadata.audio_final_path = audio_master_path
     roteiro.metadata.palavras_transcritas = palavras_absolutas
 
-    wers = [c.wer_final for c in roteiro.cenas if c.wer_final is not None]
-    wer_medio = sum(wers) / len(wers) if wers else 0.0
-    cenas_revisao = sum(1 for c in roteiro.cenas if c.revisao_manual_necessaria)
-
     logger.info(
-        "pipeline_audio.concluido",
+        "pipeline_audio.audio_master_criado",
         extra={
             "video_id": roteiro.metadata.video_id,
-            "audio_master": audio_master,
-            "wer_medio": wer_medio,
-            "cenas_revisao": cenas_revisao,
+            "audio_master_path": audio_master_path,
             "total_palavras": len(palavras_absolutas),
-        },
+            "tempo_total_sintese": total_tempo_sintese,
+        }
+    )
+
+    # Copia áudio master para remotion/public (Fase 5)
+    remotion_public_dir = Path("remotion/public")
+    remotion_public_dir.mkdir(parents=True, exist_ok=True)
+    audio_public_path = remotion_public_dir / f"audio_{roteiro.metadata.video_id}.wav"
+    shutil.copy2(audio_master_path, audio_public_path)
+
+    # Atualiza o path no roteiro para o caminho relativo em public/
+    roteiro.metadata.audio_final_path = f"audio_{roteiro.metadata.video_id}.wav"
+
+    logger.info(
+        "pipeline_audio.audio_copiado_para_public",
+        extra={
+            "original": str(audio_master_path),
+            "public": str(audio_public_path),
+        }
     )
 
     # LIBERAÇÃO DE MEMÓRIA - Fase 3 completa
-    # Libera modelos TTS e Whisper da memória GPU/RAM
+    # Libera modelo Whisper da memória GPU/RAM
     logger.info("pipeline_audio.liberando_modelos")
-    liberar_modelo_tts()
     liberar_modelo_whisper()
 
     # Limpa diretório temporário se foi criado por esta função

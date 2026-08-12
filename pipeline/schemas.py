@@ -144,6 +144,9 @@ class Cena(BaseModel):
     palavras_transcritas: list[Palavra] | None = None
     wer_final: float | None = None
     revisao_manual_necessaria: bool = False
+    # Refatoração TTS - Metadados do novo pipeline (Kokoro+Seed-VC)
+    run_name_usado: str | None = None  # Perfil de voz usado nesta cena
+    tempo_sintese_segundos: float | None = None  # Tempo real de síntese
 
     # Preenchido automaticamente pela Fase 4 (assets)
     asset_resolvido_path: str | None = None

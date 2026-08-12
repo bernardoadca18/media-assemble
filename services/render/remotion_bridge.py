@@ -23,9 +23,12 @@ def _copiar_assets_para_public(roteiro: Roteiro) -> dict[str, str]:
     Copia assets do roteiro para remotion/public/ para uso via staticFile().
 
     O Remotion só consegue carregar arquivos locais via staticFile() se
-    estiverem em public/. Esta função copia áudio, imagens e vídeos do
+    estiverem em public/. Esta função copia imagens e vídeos do
     roteiro para esse diretório e retorna um mapeamento dos paths originais
     para os nomes dos arquivos em public/.
+
+    NOTA: O áudio já é copiado durante o pipeline_audio.py, então aqui
+    apenas registramos o mapeamento se o path já for relativo.
 
     Args:
         roteiro: Roteiro com assets_resolvido_path e audio_final_path
@@ -38,10 +41,15 @@ def _copiar_assets_para_public(roteiro: Roteiro) -> dict[str, str]:
 
     mapeamento: dict[str, str] = {}
 
-    # Copiar áudio final se existir
+    # Áudio já deve ter sido copiado pelo pipeline_audio.py
+    # Se o path for relativo (ex: "audio_xxx.wav"), já está em public/
     if roteiro.metadata.audio_final_path:
         audio_path = Path(roteiro.metadata.audio_final_path)
-        if audio_path.exists():
+        # Se for caminho relativo, já está no formato correto
+        if not audio_path.is_absolute():
+            mapeamento[roteiro.metadata.audio_final_path] = roteiro.metadata.audio_final_path
+        # Se for caminho absoluto e existe, copia (fallback)
+        elif audio_path.exists():
             nome_public = f"audio_{roteiro.metadata.video_id}.wav"
             destino = public_dir / nome_public
             shutil.copy2(audio_path, destino)
