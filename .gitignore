@@ -38,3 +38,5 @@ repomix*
 
 # OpenClaude settings (may contain sensitive data)
 .openclaude/settings.local.json
+.openclaude
+data/custos
