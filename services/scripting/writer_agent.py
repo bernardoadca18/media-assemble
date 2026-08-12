@@ -146,7 +146,7 @@ VALIDAÇÕES OBRIGATÓRIAS:
 - total de cenas: entre 15 e 40 (para duração de ~3 minutos)
 - duração de cada cena: entre 3.0 e 8.0 segundos
 - não repetir animacao_imagem mais que 2x consecutivas (para cenas ken_burns)
-- texto_destaque_tela: máximo em metade das cenas
+- texto_destaque_tela: máximo em 60% das cenas
 - elemento_grafico: obrigatório quando estilo_visual = "vox_motion", null quando "ken_burns"
 """
 
@@ -212,13 +212,13 @@ def _validar_regras_negocio(roteiro: Roteiro) -> list[str]:
                 f"Máximo permitido: 2 repetições."
             )
 
-    # Validar moderação de texto_destaque_tela (mais tolerante: 50% das cenas)
+    # Validar moderação de texto_destaque_tela (tolerante: até 60% das cenas)
     cenas_com_destaque = sum(1 for c in roteiro.cenas if c.overlays.texto_destaque_tela)
-    limite_destaque = len(roteiro.cenas) // 2  # Aumentado de 1/3 para 1/2
+    limite_destaque = int(len(roteiro.cenas) * 0.6)  # Aumentado de 50% para 60%
     if cenas_com_destaque > limite_destaque:
         erros.append(
             f"Texto_destaque_tela usado em {cenas_com_destaque} cenas. "
-            f"Máximo permitido: {limite_destaque} (1/2 do total)."
+            f"Máximo permitido: {limite_destaque} (60% do total)."
         )
 
     return erros

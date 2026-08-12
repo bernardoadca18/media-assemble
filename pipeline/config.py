@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # --- Áudio / GPU ---
     whisper_model_size: str = "medium"
-    whisper_device: str = "cuda"
+    whisper_device: str = "cpu"
     whisper_compute_type: str = "float16"
     # F5-TTS (LEGADO - mantido para fallback se necessário)
     f5_tts_ref_audio: str = "data/voz_referencia/minha_voz.wav"
@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     # Novo pipeline de voz (Kokoro + Seed-VC)
     voice_pipeline_url: str = "http://localhost:9000"
     voice_pipeline_run_name_default: str = "minha_voz_v1"
-    voice_pipeline_timeout: int = 300  # 5 minutos por cena
-    voice_pipeline_max_retries: int = 3  # Para erro 409 (GPU ocupada)
-    voice_pipeline_retry_delay: float = 2.0  # Segundos entre retries
+    voice_pipeline_timeout: int = 600  # 10 minutos por cena (Seed-VC pode ser lento)
+    voice_pipeline_max_retries: int = 5  # Para erro 409 (GPU ocupada)
+    voice_pipeline_retry_delay: float = 30.0  # Segundos entre retries (Seed-VC demora minutos)
 
     # --- Pipeline ---
     nichos_ativos: str = "cultura_pop"

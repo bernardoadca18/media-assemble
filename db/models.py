@@ -13,7 +13,7 @@ import datetime as dt
 import logging
 
 from sqlalchemy import String, Text, DateTime, Float, Boolean, func
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, ENUM
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
@@ -103,8 +103,16 @@ class IdeiaManual(Base):
     titulo_sugerido: Mapped[str] = mapped_column(String, nullable=False)
     descricao_breve: Mapped[str | None] = mapped_column(Text, nullable=True)
     tendencia_relacionada: Mapped[str | None] = mapped_column(String, nullable=True)
-    prioridade: Mapped[str] = mapped_column(String, nullable=False, default="normal")  # alta, normal
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pendente")  # pendente, usada, descartada
+    prioridade: Mapped[str] = mapped_column(
+        ENUM("alta", "normal", name="prioridade_ideia", create_type=False),
+        nullable=False,
+        default="normal"
+    )
+    status: Mapped[str] = mapped_column(
+        ENUM("pendente", "usada", "descartada", name="status_ideia_manual", create_type=False),
+        nullable=False,
+        default="pendente"
+    )
     video_id: Mapped[str | None] = mapped_column(String, nullable=True)
     criado_em: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
