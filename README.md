@@ -7,9 +7,8 @@
 > algum momento após o commit `c218719`. Restaurado integralmente; sem
 > indício de que vá se repetir.
 
-Sistema modular para geração autônoma de vídeos "faceless" para YouTube,
-substituindo o fluxo n8n `Scrapper` por uma arquitetura 100% Python,
-otimizada para execução local com GPU única (RTX 2060, 12GB VRAM).
+Sistema modular para geração autônoma de multimídia, com uma arquitetura 100% Python,
+otimizada para execução local com GPU única e modelos cloud.
 
 ## Setup rápido
 
