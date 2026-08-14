@@ -1,4 +1,4 @@
-# Faceless Pipeline — Sistema Autônomo de Vídeos (100% Python)
+# Media Assemble — Sistema Autônomo de Multimídia. (100% Python)
 
 > **Nota (resolvida):** este arquivo havia desaparecido do repositório em
 > algum ponto entre a Fase 3 e a Fase 4. Investigação via `git log --all
