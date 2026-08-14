@@ -1,80 +1,82 @@
-# Media Assemble — Sistema Autônomo de Multimídia. (100% Python)
+# Media Assemble — Autonomous Multimedia System (100% Python)
 
-> **Nota (resolvida):** este arquivo havia desaparecido do repositório em
-> algum ponto entre a Fase 3 e a Fase 4. Investigação via `git log --all
-> --full-history -- README.md` confirmou que não houve um commit de
-> remoção explícito — o arquivo simplesmente deixou de ser rastreado em
-> algum momento após o commit `c218719`. Restaurado integralmente; sem
-> indício de que vá se repetir.
+> **Note (resolved):** this file had disappeared from the repository at
+> some point between Phase 3 and Phase 4. An investigation using `git log --all
+> --full-history -- README.md` confirmed that there was no explicit removal
+> commit — the file simply stopped being tracked at some point after commit
+> `c218719`. It has been fully restored; there is no indication that this will
+> happen again.
+>
+> **Language:** English · [Versão em Português (Brasil)](README.pt-br.md)
 
-Sistema modular para geração autônoma de multimídia, com uma arquitetura 100% Python,
-otimizada para execução local com GPU única e modelos cloud.
+A modular system for autonomous multimedia generation, with a 100% Python architecture
+optimized for local execution on a single GPU and cloud models.
 
-## Setup rápido
+## Quick setup
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # ou .venv\Scripts\activate no Windows
+source .venv/bin/activate  # or .venv\Scriptsctivate on Windows
 pip install -r requirements.txt
-cp .env.example .env        # preencher credenciais e paths reais
+cp .env.example .env        # fill in actual credentials and paths
 ```
 
-Preencha no `.env`, no mínimo:
-- `DATABASE_URL` — string de conexão do Postgres.
-- Credenciais de LLM (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) conforme os modelos configurados em `CLOUD_MODEL_IDEACAO` e `CLOUD_MODEL_ROTEIRO`.
-- `F5_TTS_REF_AUDIO` / `F5_TTS_REF_TEXT` — amostra de voz para o TTS (Fase 3).
-- `PEXELS_API_KEY` — necessária para o fallback de assets visuais (Fase 4) quando o banco local não tiver o asset.
+Fill in at least the following in `.env`:
+- `DATABASE_URL` — Postgres connection string.
+- LLM credentials (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) according to the models configured in `CLOUD_MODEL_IDEACAO` and `CLOUD_MODEL_ROTEIRO`.
+- `F5_TTS_REF_AUDIO` / `F5_TTS_REF_TEXT` — voice sample for TTS (Phase 3).
+- `PEXELS_API_KEY` — required for visual asset fallback (Phase 4) when the local database does not contain the asset.
 
-### Banco de dados
+### Database
 
-Rode as migrations antes da primeira execução:
+Run the migrations before the first execution:
 
 ```bash
 alembic upgrade head
 ```
 
-Isso cria o schema `dados` e as tabelas `videos_ideias` (compatível com o
-fluxo n8n original), `roteiros` e `execucoes_pipeline` (esta última só
-passa a ser usada de fato na Fase 6).
+This creates the `dados` schema and the `videos_ideias` table (compatible with the
+original n8n flow), as well as `roteiros` and `execucoes_pipeline` (the latter
+only becomes actively used in Phase 6).
 
-## Rodando o pipeline
+## Running the pipeline
 
-Pipeline completo (Fases 1 a 5):
+Complete pipeline (Phases 1 through 5):
 
 ```bash
 python main.py --run-once
 ```
 
-Ou agendado (produção):
+Or scheduled (production):
 
 ```bash
 python main.py
 ```
 
-## Estrutura de pastas
+## Folder structure
 
 ```
-pipeline/       # Orquestração, configuração e schemas (fonte da verdade)
-services/       # Um módulo por etapa do pipeline
-  trends/       # Fase 1 — coleta e normalização de tendências
-  ideation/     # Fase 1 — geração de 5 ideias de vídeo
-  scripting/    # Fase 2 — roteirização completa em JSON
-  audio/        # Fase 3 — TTS (F5-TTS) + validação (Faster-Whisper/WER)
-  visual/       # Fase 4 — resolução de assets (banco local + fallback Pexels)
-  render/       # Fase 5 — renderização via Remotion
-api/            # FastAPI HTTP para gestão do pipeline (frontend)
-db/             # Modelos SQLAlchemy, sessão e migrations Alembic
-utils/          # Logging estruturado e cliente unificado LiteLLM
-remotion/       # Projeto Node.js/React isolado (Fase 5)
-frontend/       # Interface web de gestão (React + TypeScript + Vite)
-data/           # Assets locais, áudio temporário, saída final
-tests/          # Testes automatizados
+pipeline/       # Orchestration, configuration, and schemas (source of truth)
+services/       # One module per pipeline stage
+  trends/       # Phase 1 — trend collection and normalization
+  ideation/     # Phase 1 — generation of 5 video ideas
+  scripting/    # Phase 2 — full scripting in JSON
+  audio/        # Phase 3 — TTS (F5-TTS) + validation (Faster-Whisper/WER)
+  visual/       # Phase 4 — asset resolution (local database + Pexels fallback)
+  render/       # Phase 5 — rendering via Remotion
+api/            # FastAPI HTTP API for pipeline management (frontend)
+db/             # SQLAlchemy models, session, and Alembic migrations
+utils/          # Structured logging and unified LiteLLM client
+remotion/       # Isolated Node.js/React project (Phase 5)
+frontend/       # Web management interface (React + TypeScript + Vite)
+data/           # Local assets, temporary audio, final output
+tests/          # Automated tests
 ```
 
-## Banco local de assets visuais (Fase 4)
+## Local visual asset database (Phase 4)
 
-`data/assets_local/` é organizado por **tags** — cada subpasta é uma tag,
-e os arquivos dentro dela são os assets daquela tag:
+`data/assets_local/` is organized by **tags** — each subfolder is a tag,
+and the files inside it are the assets for that tag:
 
 ```
 data/assets_local/
@@ -85,123 +87,119 @@ data/assets_local/
         clip1.mp4
 ```
 
-- O nome da pasta vira a tag automaticamente (normalizado: minúsculas, sem
-  acentos, espaços/hífens viram `_`).
-- O casamento de uma cena com uma tag é feito a partir de
-  `midia.keywords_busca` do roteiro, com correspondência exata e também
-  parcial (ex: keyword `"doctor_doom_art"` casa com a tag `doctor_doom`).
-- Se uma tag tiver múltiplos arquivos, um é escolhido aleatoriamente a
-  cada resolução — evita que o mesmo asset único seja reaproveitado em
-  todo vídeo que referencia aquela tag.
-- Pastas começando com `_` ou `.` são ignoradas na indexação (ex:
-  `_fallback_cache/`, usada internamente pelo fallback do Pexels — não
-  edite manualmente).
-- Quando nenhum asset é encontrado localmente, o fallback via Pexels API
-  é acionado automaticamente (requer `PEXELS_API_KEY` no `.env`). Se nem
-  o fallback encontrar nada, a cena é marcada com
-  `revisao_manual_necessaria = True` para revisão humana — o pipeline
-  segue adiante, nunca trava por causa de uma única cena sem asset.
+- The folder name automatically becomes the tag (normalized to lowercase, without
+  accents; spaces/hyphens are converted to `_`).
+- Scene-to-tag matching is based on `midia.keywords_busca` from the script, with both
+  exact and partial matching (e.g. keyword `"doctor_doom_art"` matches the `doctor_doom` tag).
+- If a tag contains multiple files, one is selected randomly on each resolution —
+  this prevents the same single asset from being reused throughout every video that
+  references that tag.
+- Folders beginning with `_` or `.` are ignored during indexing (e.g.
+  `_fallback_cache/`, used internally by the Pexels fallback — do not edit manually).
+- When no asset is found locally, the Pexels API fallback is triggered automatically
+  (requires `PEXELS_API_KEY` in `.env`). If the fallback also finds nothing, the scene
+  is marked with `revisao_manual_necessaria = True` for human review — the pipeline
+  continues and never gets stuck because of a single scene without an asset.
 
-## Princípio de concorrência (importante)
+## Concurrency principle (important)
 
-Toda chamada que toca a GPU local (LLM local via LiteLLM, F5-TTS,
-Faster-Whisper) **deve** passar pelo `gpu_task` de `pipeline/gpu_lock.py`.
-Chamadas a modelos em nuvem (Claude, Gemini, OpenAI) e a APIs externas
-(Pexels) não precisam desse lock e podem rodar em paralelo livremente.
+Any call that touches the local GPU (local LLM via LiteLLM, F5-TTS,
+Faster-Whisper) **must** go through `gpu_task` in `pipeline/gpu_lock.py`.
+Calls to cloud models (Claude, Gemini, OpenAI) and external APIs (Pexels)
+do not need this lock and can run freely in parallel.
 
-## Rodando os testes
+## Running tests
 
 ```bash
 pytest -v
 ```
 
-## Status das fases
+## Phase status
 
-| Fase | Escopo | Status |
+| Phase | Scope | Status |
 |---|---|---|
-| 1 | Tendências + Ideação | Concluída |
-| 2 | Roteirização completa | Concluída |
-| 3 | Áudio (F5-TTS + Whisper + WER) | Concluída |
-| 4 | Assets visuais (banco local + fallback Pexels) | Concluída |
-| 5 | Renderização (Remotion) | Concluída ✓ (validado com render real) |
-| 6 | Orquestração end-to-end + observabilidade | Concluída |
-| 7 | Hardening, multi-nicho, deploy | Não iniciado |
+| 1 | Trends + Ideation | Completed |
+| 2 | Full scripting | Completed |
+| 3 | Audio (F5-TTS + Whisper + WER) | Completed |
+| 4 | Visual assets (local database + Pexels fallback) | Completed |
+| 5 | Rendering (Remotion) | Completed ✓ (validated with a real render) |
+| 6 | End-to-end orchestration + observability | Completed |
+| 7 | Hardening, multi-niche, deployment | Not started |
 
-Cada execução de `rodar_pipeline_completo` persiste o roteiro no banco
-(`db.models.salvar_roteiro`, upsert por `video_id`) após cada fase
-concluída — Fase 2 (roteiro gerado), Fase 3 (áudio preenchido), Fase 4
-(assets resolvidos) e Fase 5 (vídeo renderizado) — para que o progresso
-não se perca se o processo for interrompido.
+Each `rodar_pipeline_completo` execution persists the script in the database
+(`db.models.salvar_roteiro`, upsert by `video_id`) after each completed phase —
+Phase 2 (script generated), Phase 3 (audio populated), Phase 4 (assets resolved),
+and Phase 5 (video rendered) — so progress is not lost if the process is interrupted.
 
-## Fase 5 — Renderização (Remotion)
+## Phase 5 — Rendering (Remotion)
 
-A Fase 5 utiliza o [Remotion](https://www.remotion.dev/) para renderizar o vídeo final a partir do roteiro populado. O projeto Node.js está isolado em `remotion/` e é invocado via subprocess pelo bridge Python.
+Phase 5 uses [Remotion](https://www.remotion.dev/) to render the final video from the populated script. The Node.js project is isolated in `remotion/` and is invoked via subprocess by the Python bridge.
 
-### Setup do Remotion
+### Remotion setup
 
 ```bash
 cd remotion
 npm install
 ```
 
-### Estrutura dos componentes Remotion
+### Remotion component structure
 
 ```
 remotion/src/
 ├── index.ts              # Entry point
-├── Root.tsx              # Define composição principal
+├── Root.tsx              # Defines the main composition
 └── components/
-    ├── KenBurnsImage.tsx       # Efeito zoom/pan em imagens
-    ├── SubtitlesOverlay.tsx    # Legendas palavra-a-palavra
-    ├── AudioTrack.tsx          # Narração + trilha com ducking
-    ├── SceneRenderer.tsx       # Renderiza cena individual
-    └── VideoComposition.tsx    # Compõe todas as cenas
+    ├── KenBurnsImage.tsx       # Zoom/pan effect on images
+    ├── SubtitlesOverlay.tsx    # Word-by-word subtitles
+    ├── AudioTrack.tsx          # Narration + ducked music track
+    ├── SceneRenderer.tsx       # Renders an individual scene
+    └── VideoComposition.tsx    # Composes all scenes
 ```
 
-### Renderização manual
+### Manual rendering
 
-Para renderizar um vídeo manualmente (sem o pipeline Python):
+To render a video manually (without the Python pipeline):
 
 ```bash
 cd remotion
 npx remotion render src/index.ts VideoPrincipal out/video.mp4
 ```
 
-O bridge Python (`services/render/remotion_bridge.py`) automatiza esse processo, serializando o roteiro para JSON e passando como props para a composição.
+The Python bridge (`services/render/remotion_bridge.py`) automates this process by serializing the script to JSON and passing it as props to the composition.
 
-## Fase 6 — Orquestração End-to-End e Observabilidade
+## Phase 6 — End-to-End Orchestration and Observability
 
-A Fase 6 implementa tratamento de erros por etapa, persistência de estado de execução e rastreabilidade completa do pipeline.
+Phase 6 implements per-stage error handling, execution-state persistence, and full pipeline traceability.
 
-### Tratamento de erros por etapa
+### Per-stage error handling
 
-Cada uma das 5 fases do pipeline é envolvida em um bloco `try/except`:
-- **Ideação (Fase 1)**: falha é registrada com `video_id=None` (ainda não gerado)
-- **Roteirização (Fase 2)**: falha capturada antes da geração do `video_id`
-- **Áudio (Fase 3)**: falha registrada com o `video_id` já disponível
-- **Assets (Fase 4)**: falha registrada com `video_id`
-- **Renderização (Fase 5)**: falha registrada com `video_id`
+Each of the 5 pipeline phases is wrapped in a `try/except` block:
+- **Ideation (Phase 1)**: failure is recorded with `video_id=None` (not generated yet)
+- **Scripting (Phase 2)**: failure is captured before `video_id` generation
+- **Audio (Phase 3)**: failure is recorded with the already available `video_id`
+- **Assets (Phase 4)**: failure is recorded with `video_id`
+- **Rendering (Phase 5)**: failure is recorded with `video_id`
 
-**Decisão de design**: quando uma fase falha, a execução é interrompida imediatamente — o pipeline **não continua** para a próxima fase. Isso evita processamento desnecessário e garante que cada vídeo seja gerado de forma íntegra, do início ao fim.
+**Design decision**: when a phase fails, execution stops immediately — the pipeline **does not continue** to the next phase. This avoids unnecessary processing and ensures that each video is generated completely and consistently from start to finish.
 
-### Persistência de execuções
+### Execution persistence
 
-A tabela `dados.execucoes_pipeline` armazena o histórico de cada execução:
+The `dados.execucoes_pipeline` table stores the history of each execution:
 
-| Coluna | Descrição |
+| Column | Description |
 |--------|-----------|
-| `video_id` | Identificador único do vídeo (ou string vazia se falhou antes da geração) |
-| `nicho` | Nicho processado (ex: `cultura_pop`) |
-| `etapa_atual` | Última fase executada (`ideacao`, `roteirizacao`, `audio`, `assets`, `renderizacao`) |
-| `sucesso` | `True` se concluiu com sucesso, `False` se falhou, `NULL` se em andamento |
-| `caminho_video_final` | Path do vídeo renderizado (apenas se `sucesso=True`) |
-| `wer_medio` | WER médio das cenas (apenas se `sucesso=True`) |
-| `criado_em` | Timestamp de criação do registro |
-| `atualizado_em` | Timestamp da última atualização |
+| `video_id` | Unique video identifier (or an empty string if it failed before generation) |
+| `nicho` | Processed niche (e.g. `cultura_pop`) |
+| `etapa_atual` | Last executed phase (`ideacao`, `roteirizacao`, `audio`, `assets`, `renderizacao`) |
+| `sucesso` | `True` if completed successfully, `False` if it failed, `NULL` if still in progress |
+| `caminho_video_final` | Path to the rendered video (only if `sucesso=True`) |
+| `wer_medio` | Average WER across scenes (only if `sucesso=True`) |
+| `criado_em` | Record creation timestamp |
+| `atualizado_em` | Last update timestamp |
 
-### Consultando o histórico de execuções
+### Querying execution history
 
-Para ver as últimas 10 execuções:
+To view the last 10 executions:
 
 ```sql
 SELECT
@@ -217,7 +215,7 @@ ORDER BY atualizado_em DESC
 LIMIT 10;
 ```
 
-Para ver execuções com falha:
+To view failed executions:
 
 ```sql
 SELECT video_id, etapa_atual, atualizado_em
@@ -226,7 +224,7 @@ WHERE sucesso = FALSE
 ORDER BY atualizado_em DESC;
 ```
 
-Para ver taxa de sucesso por nicho:
+To view the success rate by niche:
 
 ```sql
 SELECT
@@ -240,9 +238,9 @@ GROUP BY nicho
 ORDER BY nicho;
 ```
 
-### Logging estruturado
+### Structured logging
 
-Todos os logs incluem campos estruturados para correlação:
+All logs include structured fields for correlation:
 
 ```python
 logger.error(
@@ -257,39 +255,39 @@ logger.error(
 )
 ```
 
-Isso permite filtrar logs por `video_id`, `nicho` ou tipo de erro em sistemas de observabilidade (Grafana Loki, ELK, etc.).
+This allows logs to be filtered by `video_id`, `nicho`, or error type in observability systems (Grafana Loki, ELK, etc.).
 
-## Frontend — Interface de Gestão
+## Frontend — Management Interface
 
-O projeto inclui uma interface web para gestão do pipeline, disponível em `frontend/`.
+The project includes a web interface for managing the pipeline, available in `frontend/`.
 
-### Iniciando o frontend
+### Starting the frontend
 
 ```bash
-# Terminal 1: API backend
+# Terminal 1: Backend API
 uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Terminal 2: Frontend
 cd frontend && npm run dev
 ```
 
-Acesse `http://localhost:5173`.
+Open `http://localhost:5173`.
 
-### Funcionalidades
+### Features
 
-| Página | Rota | Descrição |
+| Page | Route | Description |
 |--------|------|-----------|
-| Dashboard | `/` | Status da GPU, estatísticas, execuções recentes |
-| Execuções | `/execucoes` | Histórico completo, filtros, retomar falhas |
-| Revisão Manual | `/revisao` | Aprovar/rejeitar roteiros pendentes |
-| Ideias Manuais | `/ideias-manuais` | Criar e listar ideias de vídeo |
-| Gameplay | `/gameplay` | Segmentos indexados, estatísticas por jogo |
-| Nichos | `/nichos` | Configurações de nichos e canais |
+| Dashboard | `/` | GPU status, statistics, recent executions |
+| Executions | `/execucoes` | Full history, filters, resume failed executions |
+| Manual Review | `/revisao` | Approve/reject pending scripts |
+| Manual Ideas | `/ideias-manuais` | Create and list video ideas |
+| Gameplay | `/gameplay` | Indexed segments, statistics by game |
+| Niches | `/nichos` | Niche and channel settings |
 
-### Segurança
+### Security
 
-- API bind apenas em `127.0.0.1` (uso local)
-- CORS restrito a `localhost:5173` e `localhost:3000`
-- Sem autenticação (não expor publicamente)
+- API bound only to `127.0.0.1` (local use)
+- CORS restricted to `localhost:5173` and `localhost:3000`
+- No authentication (do not expose publicly)
 
-Para detalhes completos, veja `frontend/README.md`.
+For full details, see `frontend/README.md`.
