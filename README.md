@@ -1,12 +1,5 @@
 # Media Assemble — Autonomous Multimedia System (100% Python)
 
-> **Note (resolved):** this file had disappeared from the repository at
-> some point between Phase 3 and Phase 4. An investigation using `git log --all
-> --full-history -- README.md` confirmed that there was no explicit removal
-> commit — the file simply stopped being tracked at some point after commit
-> `c218719`. It has been fully restored; there is no indication that this will
-> happen again.
->
 > **Language:** English · [Versão em Português (Brasil)](README.pt-br.md)
 
 A modular system for autonomous multimedia generation, with a 100% Python architecture
